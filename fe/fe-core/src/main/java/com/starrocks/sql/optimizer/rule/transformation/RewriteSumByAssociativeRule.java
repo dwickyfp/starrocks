@@ -239,8 +239,8 @@ public class RewriteSumByAssociativeRule extends TransformationRule {
                                 // sum(expr + 1) will translate to sum(add(cast(expr as INT), 1)),
                                 // but this cast is not needed in the sum function after rewriting,
                                 // we can remove it and get sum(expr) + count() * 1
-                                ScalarOperator newArg0 = rewriteCastForAggExpr(arguments.get(0));
-                                ScalarOperator newArg1 = rewriteCastForAggExpr(arguments.get(1));
+                                ScalarOperator newArg0 = rewriteCastForAggExpr(arguments.get(0), aggFunction.getType());
+                                ScalarOperator newArg1 = rewriteCastForAggExpr(arguments.get(1), aggFunction.getType());
                                 // @TODO what if cast cannot evaul on FE
 
                                 ScalarOperator agg0 = createNewAggFunction(
@@ -268,7 +268,7 @@ public class RewriteSumByAssociativeRule extends TransformationRule {
             return op;
         }
 
-        private ScalarOperator rewriteCastForAggExpr(ScalarOperator expr) {
+        private ScalarOperator rewriteCastForAggExpr(ScalarOperator expr, Type sumResultType) {
             if (expr instanceof CastOperator) {
                 CastOperator castOperator = (CastOperator) expr;
                 Type toType = castOperator.getType();
@@ -281,9 +281,14 @@ public class RewriteSumByAssociativeRule extends TransformationRule {
                     AggregateFunction possibleAggregateFunction = AggregateFunction.createBuiltin(
                             FunctionSet.SUM, Lists.newArrayList(fromType), toType, toType,
                             false, true, false);
-                    if (GlobalStateMgr.getCurrentState().getFunction(
-                            possibleAggregateFunction, Function.CompareMode.IS_IDENTICAL) != null) {
-                        return rewriteCastForAggExpr(fromOperator);
+                    Function fn = GlobalStateMgr.getCurrentState().getFunction(
+                            possibleAggregateFunction, Function.CompareMode.IS_IDENTICAL);
+                    // The lookup matches on the argument type only. The rewritten sum keeps the original
+                    // result type, so the signature found for fromType must produce that same type too:
+                    // e.g. sum(BOOLEAN) returns BIGINT, so a cast from BOOLEAN to DOUBLE must be kept,
+                    // otherwise BE gets a sum(BOOLEAN) -> DOUBLE it has no implementation for.
+                    if (fn != null && fn.getReturnType().getPrimitiveType() == sumResultType.getPrimitiveType()) {
+                        return rewriteCastForAggExpr(fromOperator, sumResultType);
                     }
                 }
             }
