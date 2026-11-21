@@ -529,10 +529,20 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
+import com.starrocks.sql.ast.procedure.DescProcedureStmt;
+import com.starrocks.sql.ast.procedure.DropProcedureStmt;
+import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
+import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
+import com.starrocks.sql.ast.task.CreateTaskStmt;
+import com.starrocks.sql.ast.task.DescTaskStmt;
+import com.starrocks.sql.ast.task.ExecuteTaskStmt;
+import com.starrocks.sql.ast.task.ShowTasksStmt;
 import com.starrocks.sql.ast.translate.TranslateStmt;
 import com.starrocks.sql.ast.txn.BeginStmt;
 import com.starrocks.sql.ast.txn.CommitStmt;
@@ -586,6 +596,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1882,6 +1893,85 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         return new CallProcedureStatement(qualifiedName, procedureArguments, createPos(context));
     }
 
+    // ------------------------------------------- Stored Procedure ---------------------------------------------------
+
+    @Override
+    public ParseNode visitCreateProcedureStatement(
+            com.starrocks.sql.parser.StarRocksParser.CreateProcedureStatementContext context) {
+        boolean orReplace = context.REPLACE() != null;
+        boolean ifNotExists = context.IF() != null;
+        if (orReplace && ifNotExists) {
+            throw new ParsingException("OR REPLACE and IF NOT EXISTS cannot be used together", createPos(context));
+        }
+        List<CreateProcedureStmt.Parameter> parameters = new ArrayList<>();
+        for (com.starrocks.sql.parser.StarRocksParser.ProcedureParameterContext p : context.procedureParameter()) {
+            String name = ((Identifier) visit(p.identifier())).getValue();
+            String typeSql = TypeParser.getType(p.type()).toSql();
+            String defaultSql = p.expression() == null ? null : extractRawText(p.expression());
+            parameters.add(new CreateProcedureStmt.Parameter(name, typeSql, defaultSql));
+        }
+        String returnTypeSql = TypeParser.getType(context.returnType).toSql();
+        String language = context.SQL() != null ? "SQL" : ((Identifier) visit(context.language)).getValue();
+        boolean executeAsCaller = context.CALLER() != null;
+        String comment = context.procedureComment == null ? null
+                : ((StringLiteral) visit(context.procedureComment)).getValue();
+        String body;
+        if (context.ATTACHMENT() != null) {
+            String content = context.ATTACHMENT().getText();
+            body = content.substring(2, content.length() - 2);
+        } else {
+            body = ((StringLiteral) visit(context.body)).getValue();
+        }
+        return new CreateProcedureStmt(getQualifiedName(context.qualifiedName()), orReplace, ifNotExists, parameters,
+                returnTypeSql, context.retNotNull != null, language, executeAsCaller, comment, body, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitDropProcedureStatement(
+            com.starrocks.sql.parser.StarRocksParser.DropProcedureStatementContext context) {
+        return new DropProcedureStmt(getQualifiedName(context.qualifiedName()), context.IF() != null,
+                getProcedureArgTypes(context.typeList()), createPos(context));
+    }
+
+    @Override
+    public ParseNode visitShowProceduresStatement(
+            com.starrocks.sql.parser.StarRocksParser.ShowProceduresStatementContext context) {
+        String dbName = context.db == null ? null : normalizeName(getQualifiedName(context.db).toString());
+        String pattern = context.pattern == null ? null : ((StringLiteral) visit(context.pattern)).getValue();
+        return new ShowProceduresStmt(dbName, pattern, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitDescProcedureStatement(
+            com.starrocks.sql.parser.StarRocksParser.DescProcedureStatementContext context) {
+        return new DescProcedureStmt(getQualifiedName(context.qualifiedName()),
+                getProcedureArgTypes(context.typeList()), createPos(context));
+    }
+
+    @Override
+    public ParseNode visitExecuteImmediateStatement(
+            com.starrocks.sql.parser.StarRocksParser.ExecuteImmediateStatementContext context) {
+        String script;
+        if (context.ATTACHMENT() != null) {
+            String content = context.ATTACHMENT().getText();
+            script = content.substring(2, content.length() - 2);
+        } else {
+            script = ((StringLiteral) visit(context.string())).getValue();
+        }
+        return new ExecuteImmediateStmt(script, createPos(context));
+    }
+
+    private List<String> getProcedureArgTypes(com.starrocks.sql.parser.StarRocksParser.TypeListContext typeList) {
+        if (typeList == null) {
+            return null;
+        }
+        List<String> types = new ArrayList<>();
+        for (com.starrocks.sql.parser.StarRocksParser.TypeContext type : typeList.type()) {
+            types.add(TypeParser.getType(type).toSql());
+        }
+        return types;
+    }
+
     @Override
     public ParseNode visitCancelAlterTableStatement(
             com.starrocks.sql.parser.StarRocksParser.CancelAlterTableStatementContext context) {
@@ -2250,6 +2340,31 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         TaskName taskName = qualifiedNameToTaskName(qualifiedName);
         boolean ifExists = context.IF() != null;
 
+        if (!context.taskOption().isEmpty()) {
+            return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.SET,
+                    getTaskOptions(context.taskOption()), null, null, createPos(context));
+        } else if (context.UNSET() != null) {
+            List<String> unsetOptions = context.identifier().stream()
+                    .map(id -> ((Identifier) visit(id)).getValue().toUpperCase())
+                    .collect(toList());
+            return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.UNSET,
+                    null, unsetOptions, null, createPos(context));
+        } else if (context.taskBody() != null) {
+            return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.MODIFY_AS,
+                    null, null, getTaskBody(context.taskBody()), createPos(context));
+        } else if (context.taskPredecessorList() != null) {
+            AlterTaskOptionsStmt.Action action = context.ADD() != null
+                    ? AlterTaskOptionsStmt.Action.ADD_AFTER : AlterTaskOptionsStmt.Action.REMOVE_AFTER;
+            return new AlterTaskOptionsStmt(taskName, ifExists, action, null, null, null,
+                    getTaskPredecessors(context.taskPredecessorList()), null, createPos(context));
+        } else if (context.taskCondition() != null) {
+            return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.MODIFY_WHEN, null, null,
+                    null, null, getTaskCondition(context.taskCondition()), createPos(context));
+        } else if (context.WHEN() != null) {
+            return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.REMOVE_WHEN, null, null,
+                    null, null, null, createPos(context));
+        }
+
         AlterTaskStmt.AlterAction action;
         Map<String, String> properties = null;
         if (context.RESUME() != null) {
@@ -2267,6 +2382,101 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             properties = getProperties(propertyContextList, true);
         }
         return new AlterTaskStmt(taskName, ifExists, action, properties, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitCreateTaskStatement(
+            com.starrocks.sql.parser.StarRocksParser.CreateTaskStatementContext context) {
+        TaskName taskName = qualifiedNameToTaskName(getQualifiedName(context.qualifiedName()));
+        boolean orReplace = context.REPLACE() != null;
+        boolean ifNotExists = context.IF() != null;
+        if (orReplace && ifNotExists) {
+            throw new ParsingException("OR REPLACE and IF NOT EXISTS cannot be used together", createPos(context));
+        }
+        List<TaskName> predecessors = context.taskPredecessorList() == null ? null :
+                getTaskPredecessors(context.taskPredecessorList());
+        String condition = context.taskCondition() == null ? null : getTaskCondition(context.taskCondition());
+        return new CreateTaskStmt(taskName, orReplace, ifNotExists, getTaskOptions(context.taskOption()),
+                predecessors, condition, getTaskBody(context.taskBody()), createPos(context));
+    }
+
+    private List<TaskName> getTaskPredecessors(
+            com.starrocks.sql.parser.StarRocksParser.TaskPredecessorListContext context) {
+        return context.qualifiedName().stream()
+                .map(name -> qualifiedNameToTaskName(getQualifiedName(name)))
+                .collect(toList());
+    }
+
+    // WHEN SYSTEM$PREDECESSORS_STATE('<state>') -> <state> in upper case
+    private String getTaskCondition(com.starrocks.sql.parser.StarRocksParser.TaskConditionContext context) {
+        String function = ((Identifier) visit(context.functionName)).getValue();
+        if (!function.equalsIgnoreCase("SYSTEM$PREDECESSORS_STATE")) {
+            throw new ParsingException("Unsupported task condition " + function
+                    + ", only SYSTEM$PREDECESSORS_STATE('<state>') is supported", createPos(context));
+        }
+        return ((StringLiteral) visit(context.state)).getValue().trim().toUpperCase();
+    }
+
+    @Override
+    public ParseNode visitExecuteTaskStatement(
+            com.starrocks.sql.parser.StarRocksParser.ExecuteTaskStatementContext context) {
+        TaskName taskName = qualifiedNameToTaskName(getQualifiedName(context.qualifiedName()));
+        return new ExecuteTaskStmt(taskName, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitShowTasksStatement(com.starrocks.sql.parser.StarRocksParser.ShowTasksStatementContext context) {
+        String dbName = null;
+        if (context.db != null) {
+            dbName = normalizeName(getQualifiedName(context.db).toString());
+        }
+        String pattern = null;
+        if (context.pattern != null) {
+            pattern = ((StringLiteral) visit(context.pattern)).getValue();
+        }
+        return new ShowTasksStmt(dbName, pattern, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitDescTaskStatement(com.starrocks.sql.parser.StarRocksParser.DescTaskStatementContext context) {
+        TaskName taskName = qualifiedNameToTaskName(getQualifiedName(context.qualifiedName()));
+        return new DescTaskStmt(taskName, createPos(context));
+    }
+
+    /**
+     * Task options are written Snowflake style as {@code KEY = value}. Keys are case-insensitive and kept upper case;
+     * string values lose their quotes, other values keep their text.
+     */
+    private Map<String, String> getTaskOptions(List<com.starrocks.sql.parser.StarRocksParser.TaskOptionContext> options) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (com.starrocks.sql.parser.StarRocksParser.TaskOptionContext option : options) {
+            String key = ((Identifier) visit(option.key)).getValue().toUpperCase();
+            com.starrocks.sql.parser.StarRocksParser.TaskOptionValueContext valueContext = option.value;
+            String value;
+            if (valueContext.string() != null) {
+                value = ((StringLiteral) visit(valueContext.string())).getValue();
+            } else if (valueContext.identifier() != null) {
+                value = ((Identifier) visit(valueContext.identifier())).getValue();
+            } else {
+                value = valueContext.getText();
+            }
+            if (result.put(key, value) != null) {
+                throw new ParsingException("Task option " + key + " is specified more than once", createPos(option));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * The task body is kept as SQL text: a dollar-quoted script {@code $$ ... $$} without its quotes, or the text of
+     * the single statement as written.
+     */
+    private String getTaskBody(com.starrocks.sql.parser.StarRocksParser.TaskBodyContext context) {
+        if (context.ATTACHMENT() != null) {
+            String content = context.ATTACHMENT().getText();
+            return content.substring(2, content.length() - 2).trim();
+        }
+        return extractRawText(context.statement());
     }
 
     @Override
@@ -6750,6 +6960,12 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             }
         }
 
+        if (context.timeTravelClause() != null) {
+            com.starrocks.sql.parser.StarRocksParser.TimeTravelClauseContext travel = context.timeTravelClause();
+            tableRelation.setQueryPeriodString(buildTimeTravelString(travel));
+            tableRelation.setQueryPeriod(new QueryPeriod(QueryPeriod.PeriodType.TIMESTAMP, buildTimeTravelPoint(travel)));
+        }
+
         if (context.BEFORE() != null) {
             String ts = ((StringLiteral) visit(context.ts)).getStringValue();
             SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -6802,6 +7018,29 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             default:
                 throw new ParsingException("Unsupported query period type: " + token.getText());
         }
+    }
+
+    // AT(TIMESTAMP => t) reads the table as of t, AT(OFFSET => n) as of n seconds from now (n is negative for the past)
+    // and BEFORE(TIMESTAMP => t) just before t; all of them become a point in time.
+    private Expr buildTimeTravelPoint(com.starrocks.sql.parser.StarRocksParser.TimeTravelClauseContext context) {
+        Expr value = (Expr) visit(context.expression());
+        NodePosition pos = createPos(context);
+        if (context.OFFSET() != null) {
+            return new FunctionCallExpr("seconds_add",
+                    Lists.newArrayList(new FunctionCallExpr("now", Lists.newArrayList(), pos), value), pos);
+        }
+        if (context.BEFORE() != null) {
+            return new FunctionCallExpr("milliseconds_sub", Lists.newArrayList(value, new IntLiteral(1)), pos);
+        }
+        return value;
+    }
+
+    private String buildTimeTravelString(com.starrocks.sql.parser.StarRocksParser.TimeTravelClauseContext context) {
+        StringBuilder sb = new StringBuilder();
+        for (ParseTree child : context.children) {
+            sb.append(child.getText()).append(" ");
+        }
+        return sb.toString();
     }
 
     // only used for mysql external table

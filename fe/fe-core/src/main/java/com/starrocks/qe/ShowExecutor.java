@@ -136,6 +136,7 @@ import com.starrocks.load.streamload.AbstractStreamLoadTask;
 import com.starrocks.load.streamload.StreamLoadFunctionalExprProvider;
 import com.starrocks.meta.BlackListSql;
 import com.starrocks.persist.TableRefPersist;
+import com.starrocks.procedure.ProcedureExecutor;
 import com.starrocks.proto.FailPointTriggerModeType;
 import com.starrocks.proto.PFailPointInfo;
 import com.starrocks.proto.PFailPointTriggerMode;
@@ -146,6 +147,7 @@ import com.starrocks.rpc.PListFailPointRequest;
 import com.starrocks.rpc.RpcException;
 import com.starrocks.rpc.ThriftConnectionPool;
 import com.starrocks.rpc.ThriftRPCRequestExecutor;
+import com.starrocks.scheduler.UserTaskExecutor;
 import com.starrocks.server.CatalogMgr;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.MetadataMgr;
@@ -263,7 +265,11 @@ import com.starrocks.sql.ast.integration.ShowSecurityIntegrationStatement;
 import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.procedure.DescProcedureStmt;
+import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.task.DescTaskStmt;
+import com.starrocks.sql.ast.task.ShowTasksStmt;
 import com.starrocks.sql.ast.warehouse.ShowNodesStmt;
 import com.starrocks.sql.ast.warehouse.ShowWarehousesStmt;
 import com.starrocks.sql.common.MetaUtils;
@@ -3481,6 +3487,26 @@ public class ShowExecutor {
                             .collect(Collectors.toList()))
                     .collect(Collectors.toList());
             return new ShowResultSet(showResultMetaFactory.getMetadata(statement), result);
+        }
+
+        @Override
+        public ShowResultSet visitShowTasksStatement(ShowTasksStmt statement, ConnectContext context) {
+            return UserTaskExecutor.showTasks(statement, context);
+        }
+
+        @Override
+        public ShowResultSet visitDescTaskStatement(DescTaskStmt statement, ConnectContext context) {
+            return UserTaskExecutor.descTask(statement, context);
+        }
+
+        @Override
+        public ShowResultSet visitShowProceduresStatement(ShowProceduresStmt statement, ConnectContext context) {
+            return ProcedureExecutor.show(statement, context);
+        }
+
+        @Override
+        public ShowResultSet visitDescProcedureStatement(DescProcedureStmt statement, ConnectContext context) {
+            return ProcedureExecutor.desc(statement, context);
         }
 
         @Override

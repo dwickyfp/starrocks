@@ -2593,6 +2593,26 @@ public class OlapTable extends Table {
         return tableProperty.enableLoadProfile();
     }
 
+    /** The table's own data_retention_time_in_days, or -1 when it follows the global variable. */
+    public int getDataRetentionTimeInDays() {
+        if (tableProperty == null) {
+            return TableProperty.INVALID;
+        }
+        String value = tableProperty.getProperties().get(PropertyAnalyzer.PROPERTIES_DATA_RETENTION_TIME_IN_DAYS);
+        if (value == null) {
+            return TableProperty.INVALID;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return TableProperty.INVALID;
+        }
+    }
+
+    public void setDataRetentionTimeInDays(int days) {
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_DATA_RETENTION_TIME_IN_DAYS, String.valueOf(days));
+    }
+
     public int getLoadInitialOpenPartitionNumber() {
         return tableProperty == null ? TableProperty.INVALID : tableProperty.getLoadInitialOpenPartitionNumber();
     }
@@ -3546,6 +3566,11 @@ public class OlapTable extends Table {
         }
 
         // load initial open partition number
+        String dataRetentionTimeInDays = tableProperties.get(PropertyAnalyzer.PROPERTIES_DATA_RETENTION_TIME_IN_DAYS);
+        if (dataRetentionTimeInDays != null) {
+            properties.put(PropertyAnalyzer.PROPERTIES_DATA_RETENTION_TIME_IN_DAYS, dataRetentionTimeInDays);
+        }
+
         String loadInitialOpenPartitionNumber =
                 tableProperties.get(PropertyAnalyzer.PROPERTIES_LOAD_INITIAL_OPEN_PARTITION_NUMBER);
         if (loadInitialOpenPartitionNumber != null) {

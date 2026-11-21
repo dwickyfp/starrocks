@@ -196,6 +196,10 @@ public class RewriteSimpleAggToMetaScanRule extends TransformationRule {
         if (!context.getSessionVariable().isEnableRewriteSimpleAggToMetaScan()) {
             return false;
         }
+        // tablet metadata describes the current version, not the one time travel reads
+        if (context.getConnectContext() != null && context.getConnectContext().hasTimeTravel()) {
+            return false;
+        }
         LogicalAggregationOperator aggregationOperator = (LogicalAggregationOperator) input.getOp();
         LogicalOlapScanOperator scanOperator =
                 (LogicalOlapScanOperator) input.getInputs().get(0).getInputs().get(0).getOp();

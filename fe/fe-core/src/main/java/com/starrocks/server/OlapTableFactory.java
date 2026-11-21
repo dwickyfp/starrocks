@@ -821,6 +821,12 @@ public class OlapTableFactory implements AbstractTableFactory {
                 table.setPartitionLiveNumber(partitionLiveNumber);
             }
 
+            // time travel retention
+            if (properties != null && properties.containsKey(PropertyAnalyzer.PROPERTIES_DATA_RETENTION_TIME_IN_DAYS)) {
+                int days = PropertyAnalyzer.analyzeDataRetentionTimeInDays(properties, true);
+                table.setDataRetentionTimeInDays(days);
+            }
+
             // load initial open partition number
             if (properties != null
                     && properties.containsKey(PropertyAnalyzer.PROPERTIES_LOAD_INITIAL_OPEN_PARTITION_NUMBER)) {

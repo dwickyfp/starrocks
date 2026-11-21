@@ -255,6 +255,12 @@ public class TaskRun implements Comparable<TaskRun> {
      * Get the execute timeout in seconds.
      */
     public int getExecuteTimeoutS() {
+        // USER_TASK_TIMEOUT_MS of a Snowflake style task replaces the default timeout of its runs
+        long userTaskTimeoutMs = task == null ? 0 : UserTaskSpec.getUserTaskTimeoutMs(task);
+        if (userTaskTimeoutMs > 0) {
+            long timeoutS = (userTaskTimeoutMs + 999) / 1000;
+            return (int) Math.min(Math.min(timeoutS, Config.task_runs_ttl_second), Config.task_ttl_second);
+        }
         // if `query_timeout`/`insert_timeout` is set in the execute option, use it
         int defaultTimeoutS = Config.task_runs_timeout_second;
         if (properties != null) {
@@ -377,7 +383,8 @@ public class TaskRun implements Comparable<TaskRun> {
      * - It's suitable for LDAP-based authorization system, which lacks a proper user for authorization
      */
     private void switchUser(ConnectContext context) {
-        if (!Config.mv_use_creator_based_authorization) {
+        // A Snowflake style task runs arbitrary SQL, so it always runs as its owner, never as root.
+        if (!Config.mv_use_creator_based_authorization && !task.isUserSqlTask()) {
             context.setQualifiedUser(AuthenticationMgr.ROOT_USER);
             context.setCurrentUserIdentity(UserIdentity.ROOT);
             context.setCurrentRoleIds(Sets.newHashSet(PrivilegeBuiltinConstants.ROOT_ROLE_ID));
@@ -520,6 +527,20 @@ public class TaskRun implements Comparable<TaskRun> {
             }
             if (processor instanceof MVTaskRunProcessor mvProcessor) {
                 mvProcessor.restoreInactiveIfNotRebuilt();
+            }
+            if (task.isUserSqlTask()) {
+                int suspendAfter = UserTaskSpec.getSuspendAfterNumFailures(task);
+                if (suspendAfter > 0 && task.getConsecutiveFailCount() >= suspendAfter
+                        && task.getState() == Constants.TaskState.ACTIVE) {
+                    LOG.warn("Task {} has failed {} times continuously, so suspend it",
+                            task.getName(), task.getConsecutiveFailCount());
+                    // This run is the one failing: let it finish instead of killing it.
+                    GlobalStateMgr.getCurrentState().getTaskManager().suspendTaskWithoutKilling(task);
+                    throw new StarRocksException(String.format("%s. Task %s has failed %d times in a row and has been "
+                                    + "suspended (SUSPEND_TASK_AFTER_NUM_FAILURES = %d), use ALTER TASK %s RESUME to "
+                                    + "resume it", e.getMessage(), task.getName(), task.getConsecutiveFailCount(),
+                            suspendAfter, task.getName()), e);
+                }
             }
             if (Constants.TaskSource.MV.equals(task.getSource()) && Config.max_task_consecutive_fail_count > 0 &&
                     task.getConsecutiveFailCount() >= Config.max_task_consecutive_fail_count) {

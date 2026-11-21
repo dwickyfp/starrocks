@@ -5905,4 +5905,27 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long lock_invariant_violation_log_interval_ms = 10000;
 
+    /**
+     * The largest data_retention_time_in_days (global variable or table property) time travel accepts.
+     */
+    @ConfField(mutable = true)
+    public static int time_travel_max_retention_days = 90;
+
+    /**
+     * How many (version, time) points each partition of a table with time travel keeps. A point in time older
+     * than the oldest point kept can no longer be read even inside the retention period.
+     */
+    @ConfField(mutable = true)
+    public static int time_travel_max_versions_per_partition = 1000;
+
+    /**
+     * Whether the leader raises the BE config tablet_rowset_stale_sweep_time_sec so that BEs keep the old
+     * versions time travel reads for as long as the longest data_retention_time_in_days.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_time_travel_be_config_sync = true;
+
+    @ConfField(mutable = true)
+    public static long time_travel_be_config_sync_interval_sec = 60;
+
 }

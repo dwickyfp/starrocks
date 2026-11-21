@@ -77,6 +77,7 @@ public final class GlobalVariable {
     public static final String ACTIVATE_ALL_ROLES_ON_LOGIN = "activate_all_roles_on_login";
     public static final String ACTIVATE_ALL_ROLES_ON_LOGIN_V2 = "activate_all_roles_on_login_v2";
     public static final String ENABLE_TDE = "enable_tde";
+    public static final String DATA_RETENTION_TIME_IN_DAYS = "data_retention_time_in_days";
     public static final String ARROW_FLIGHT_PROXY = "arrow_flight_proxy";
     public static final String ARROW_FLIGHT_PROXY_ENABLED = "arrow_flight_proxy_enabled";
     public static final String MAX_UNKNOWN_STRING_META_LENGTH = "max_unknown_string_meta_length";
@@ -236,6 +237,19 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = ENABLE_TDE, flag = VariableMgr.GLOBAL | VariableMgr.READ_ONLY)
     public static boolean enableTde = KeyMgr.isEncrypted();
+
+    // Days of history native tables keep for time travel (AT / BEFORE / FOR TIMESTAMP AS OF), unless a table sets
+    // its own data_retention_time_in_days. 0 turns time travel off. Set with SET GLOBAL; persisted in the edit log.
+    @VariableMgr.VarAttr(name = DATA_RETENTION_TIME_IN_DAYS, flag = VariableMgr.GLOBAL)
+    private static volatile int dataRetentionTimeInDays = 0;
+
+    public static int getDataRetentionTimeInDays() {
+        return dataRetentionTimeInDays;
+    }
+
+    public static void setDataRetentionTimeInDays(int days) {
+        dataRetentionTimeInDays = days;
+    }
 
     // Arrow Flight SQL proxy endpoint. Format: "hostname:port" or "grpcs://hostname:port" for TLS.
     @VariableMgr.VarAttr(name = ARROW_FLIGHT_PROXY, flag = VariableMgr.GLOBAL)

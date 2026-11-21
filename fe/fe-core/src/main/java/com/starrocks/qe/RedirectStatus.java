@@ -264,10 +264,20 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
+import com.starrocks.sql.ast.procedure.DescProcedureStmt;
+import com.starrocks.sql.ast.procedure.DropProcedureStmt;
+import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
+import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
+import com.starrocks.sql.ast.task.CreateTaskStmt;
+import com.starrocks.sql.ast.task.DescTaskStmt;
+import com.starrocks.sql.ast.task.ExecuteTaskStmt;
+import com.starrocks.sql.ast.task.ShowTasksStmt;
 import com.starrocks.sql.ast.translate.TranslateStmt;
 import com.starrocks.sql.ast.txn.BeginStmt;
 import com.starrocks.sql.ast.txn.CommitStmt;
@@ -1596,6 +1606,58 @@ public class RedirectStatus {
         @Override
         public RedirectStatus visitShowPipeStatement(ShowPipeStmt statement, Void context) {
             return RedirectStatus.FORWARD_NO_SYNC;
+        }
+
+        @Override
+        public RedirectStatus visitCreateTaskStatement(CreateTaskStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitAlterTaskOptionsStatement(AlterTaskOptionsStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitExecuteTaskStatement(ExecuteTaskStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitShowTasksStatement(ShowTasksStmt statement, Void context) {
+            // Next schedule times are kept by the leader, which runs the tasks.
+            return RedirectStatus.FORWARD_NO_SYNC;
+        }
+
+        @Override
+        public RedirectStatus visitDescTaskStatement(DescTaskStmt statement, Void context) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        }
+
+        @Override
+        public RedirectStatus visitCreateProcedureStatement(CreateProcedureStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitDropProcedureStatement(DropProcedureStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitShowProceduresStatement(ShowProceduresStmt statement, Void context) {
+            return RedirectStatus.NO_FORWARD;
+        }
+
+        @Override
+        public RedirectStatus visitDescProcedureStatement(DescProcedureStmt statement, Void context) {
+            return RedirectStatus.NO_FORWARD;
+        }
+
+        @Override
+        public RedirectStatus visitExecuteImmediateStatement(ExecuteImmediateStmt statement, Void context) {
+            // like CALL: the statements inside run in the session, so they forward on their own
+            return RedirectStatus.NO_FORWARD;
         }
 
         @Override

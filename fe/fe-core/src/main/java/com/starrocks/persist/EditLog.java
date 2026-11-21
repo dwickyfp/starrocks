@@ -77,6 +77,9 @@ import com.starrocks.load.streamload.StreamLoadTask;
 import com.starrocks.metric.MetricRepo;
 import com.starrocks.persist.gson.GsonUtils;
 import com.starrocks.plugin.PluginInfo;
+import com.starrocks.procedure.DropProcedureLog;
+import com.starrocks.procedure.StoredProcedure;
+import com.starrocks.procedure.StoredProcedureMgr;
 import com.starrocks.proto.EncryptionKeyPB;
 import com.starrocks.replication.ReplicationJob;
 import com.starrocks.scheduler.Task;
@@ -1223,6 +1226,14 @@ public class EditLog {
                 case OperationType.OP_DROP_AI_PROVIDER: {
                     DropAIProviderLog log = (DropAIProviderLog) journal.data();
                     globalStateMgr.getAIProviderMgr().replayDropProvider(log);
+                    break;
+                }
+                case OperationType.OP_CREATE_PROCEDURE: {
+                    StoredProcedureMgr.replayCreate((StoredProcedure) journal.data());
+                    break;
+                }
+                case OperationType.OP_DROP_PROCEDURE: {
+                    StoredProcedureMgr.replayDrop((DropProcedureLog) journal.data());
                     break;
                 }
                 case OperationType.OP_SET_DEFAULT_AI_PROVIDER: {
@@ -2460,6 +2471,14 @@ public class EditLog {
 
     public void logDropAIProvider(DropAIProviderLog log, WALApplier walApplier) {
         logJsonObject(OperationType.OP_DROP_AI_PROVIDER, log, walApplier);
+    }
+
+    public void logCreateProcedure(StoredProcedure procedure, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_CREATE_PROCEDURE, procedure, walApplier);
+    }
+
+    public void logDropProcedure(DropProcedureLog log, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_DROP_PROCEDURE, log, walApplier);
     }
 
     public void logSetDefaultAIProvider(SetDefaultAIProviderLog log, WALApplier walApplier) {

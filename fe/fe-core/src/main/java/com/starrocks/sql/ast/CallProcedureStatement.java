@@ -15,6 +15,7 @@
 package com.starrocks.sql.ast;
 
 import com.starrocks.connector.Procedure;
+import com.starrocks.procedure.StoredProcedure;
 import com.starrocks.sql.optimizer.operator.scalar.ConstantOperator;
 import com.starrocks.sql.parser.NodePosition;
 
@@ -26,6 +27,8 @@ public class CallProcedureStatement extends DdlStmt {
     private final List<ProcedureArgument> arguments;
     private Procedure procedure;
     private Map<String, ConstantOperator> analyzedArguments;
+    // set when the name resolves to a Snowflake style stored procedure
+    private StoredProcedure storedProcedure;
 
     public CallProcedureStatement(QualifiedName qualifiedName, List<ProcedureArgument> arguments, NodePosition pos) {
         super(pos);
@@ -47,6 +50,14 @@ public class CallProcedureStatement extends DdlStmt {
 
     public void setProcedure(Procedure procedure) {
         this.procedure = procedure;
+    }
+
+    public StoredProcedure getStoredProcedure() {
+        return storedProcedure;
+    }
+
+    public void setStoredProcedure(StoredProcedure storedProcedure) {
+        this.storedProcedure = storedProcedure;
     }
 
     public List<ProcedureArgument> getArguments() {

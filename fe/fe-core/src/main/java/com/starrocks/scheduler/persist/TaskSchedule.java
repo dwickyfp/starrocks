@@ -32,6 +32,13 @@ public class TaskSchedule {
     @SerializedName("timeUnit")
     private TimeUnit timeUnit;
 
+    // Snowflake style 'USING CRON <expr> <time zone>' schedule. When set, period and timeUnit are unused.
+    @SerializedName("cronExpression")
+    private String cronExpression;
+
+    @SerializedName("cronTimeZone")
+    private String cronTimeZone;
+
     public TaskSchedule() {
     }
 
@@ -39,6 +46,25 @@ public class TaskSchedule {
         this.startTime = startTime;
         this.period = period;
         this.timeUnit = timeUnit;
+    }
+
+    public static TaskSchedule ofCron(String cronExpression, String cronTimeZone) {
+        TaskSchedule schedule = new TaskSchedule();
+        schedule.cronExpression = cronExpression;
+        schedule.cronTimeZone = cronTimeZone;
+        return schedule;
+    }
+
+    public boolean isCron() {
+        return cronExpression != null;
+    }
+
+    public String getCronExpression() {
+        return cronExpression;
+    }
+
+    public String getCronTimeZone() {
+        return cronTimeZone;
     }
 
     public long getStartTime() {
@@ -66,6 +92,9 @@ public class TaskSchedule {
     }
 
     public String toString() {
+        if (isCron()) {
+            return "USING CRON " + cronExpression + " " + cronTimeZone;
+        }
         if (startTime > 0) {
             return "START(" + Utils.getDatetimeFromLong(startTime)
                     + ") EVERY(" + period + " " + timeUnit + ")";

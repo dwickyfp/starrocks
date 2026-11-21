@@ -131,6 +131,10 @@ public class MvRewritePreprocessor {
     }
 
     public void prepare(OptExpression queryOptExpression) {
+        if (connectContext != null && connectContext.hasTimeTravel()) {
+            // materialized views hold the current data, not the data time travel asks for
+            return;
+        }
         try (Timer ignored = Tracers.watchScope("MVPreprocess")) {
             Set<Table> queryTables = MvUtils.getAllTables(queryOptExpression).stream().collect(Collectors.toSet());
             logMVParams(connectContext, queryTables);

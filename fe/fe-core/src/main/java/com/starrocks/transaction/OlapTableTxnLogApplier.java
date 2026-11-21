@@ -27,6 +27,7 @@ import com.starrocks.catalog.Tablet;
 import com.starrocks.clone.TabletScheduler;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.optimizer.statistics.IDictManager;
+import com.starrocks.timetravel.TimeTravelRetention;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -184,6 +185,7 @@ public class OlapTableTxnLogApplier implements TransactionLogApplier {
             long versionTime = partitionCommitInfo.getVersionTime();
             if (txnState.isVersionOverwrite()) {
                 if (partition.getVisibleVersion() < version) {
+                    TimeTravelRetention.onVersionVisible(table, partition, version, versionTime);
                     partition.updateVisibleVersion(version, versionTime, txnState.getTransactionId());
                     partition.setDataVersion(version); // data version == visible version in shared-nothing mode
                     if (partitionCommitInfo.getVersionEpoch() > 0) {
@@ -192,6 +194,7 @@ public class OlapTableTxnLogApplier implements TransactionLogApplier {
                     partition.setVersionTxnType(txnState.getTransactionType());
                 }
             } else {
+                TimeTravelRetention.onVersionVisible(table, partition, version, versionTime);
                 partition.updateVisibleVersion(version, versionTime, txnState.getTransactionId());
                 partition.setDataVersion(version); // data version == visible version in shared-nothing mode
                 if (partitionCommitInfo.getVersionEpoch() > 0) {

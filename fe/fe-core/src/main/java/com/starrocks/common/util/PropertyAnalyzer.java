@@ -97,6 +97,7 @@ import com.starrocks.thrift.TCompressionType;
 import com.starrocks.thrift.TStorageMedium;
 import com.starrocks.thrift.TStorageType;
 import com.starrocks.thrift.TTabletType;
+import com.starrocks.timetravel.TimeTravelRetention;
 import com.starrocks.type.DateType;
 import com.starrocks.type.Type;
 import com.starrocks.warehouse.Warehouse;
@@ -221,6 +222,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_PARTITION_RETENTION_CONDITION = "partition_retention_condition";
     public static final String PROPERTIES_TIME_DRIFT_CONSTRAINT = "time_drift_constraint";
     public static final String PROPERTIES_LOAD_INITIAL_OPEN_PARTITION_NUMBER = "load_initial_open_partition_number";
+    // Days of history a table keeps for time travel (AT / BEFORE / FOR TIMESTAMP AS OF); overrides the
+    // global variable of the same name.
+    public static final String PROPERTIES_DATA_RETENTION_TIME_IN_DAYS = "data_retention_time_in_days";
 
     // default: same as cluster query_timeout
     public static final String PROPERTIES_TABLE_QUERY_TIMEOUT = "table_query_timeout";
@@ -492,6 +496,24 @@ public class PropertyAnalyzer {
             }
         }
         return partitionLiveNumber;
+    }
+
+    /** {@code data_retention_time_in_days}: 0 (no time travel) up to the time travel limit, or -1 when absent. */
+    public static int analyzeDataRetentionTimeInDays(Map<String, String> properties, boolean removeProperties) {
+        int days = INVALID;
+        if (properties != null && properties.containsKey(PROPERTIES_DATA_RETENTION_TIME_IN_DAYS)) {
+            String value = properties.get(PROPERTIES_DATA_RETENTION_TIME_IN_DAYS);
+            try {
+                days = Integer.parseInt(value.trim());
+            } catch (NumberFormatException e) {
+                throw new SemanticException("Invalid " + PROPERTIES_DATA_RETENTION_TIME_IN_DAYS + ": " + value);
+            }
+            TimeTravelRetention.checkDays(PROPERTIES_DATA_RETENTION_TIME_IN_DAYS, days);
+            if (removeProperties) {
+                properties.remove(PROPERTIES_DATA_RETENTION_TIME_IN_DAYS);
+            }
+        }
+        return days;
     }
 
     public static int analyzeLoadInitialOpenPartitionNumber(Map<String, String> properties, boolean removeProperties) {

@@ -39,9 +39,11 @@ import com.starrocks.datacache.DataCacheSelectExecutor;
 import com.starrocks.datacache.DataCacheSelectMetrics;
 import com.starrocks.lake.TabletRepairHelper;
 import com.starrocks.load.EtlJobType;
+import com.starrocks.procedure.ProcedureExecutor;
 import com.starrocks.scheduler.Constants;
 import com.starrocks.scheduler.Task;
 import com.starrocks.scheduler.TaskManager;
+import com.starrocks.scheduler.UserTaskExecutor;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.WarehouseManager;
 import com.starrocks.sql.analyzer.FunctionRefAnalyzer;
@@ -163,9 +165,15 @@ import com.starrocks.sql.ast.integration.DropSecurityIntegrationStatement;
 import com.starrocks.sql.ast.pipe.AlterPipeStmt;
 import com.starrocks.sql.ast.pipe.CreatePipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
+import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
+import com.starrocks.sql.ast.procedure.DropProcedureStmt;
+import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
 import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
+import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
+import com.starrocks.sql.ast.task.CreateTaskStmt;
+import com.starrocks.sql.ast.task.ExecuteTaskStmt;
 import com.starrocks.sql.ast.warehouse.AlterWarehouseStmt;
 import com.starrocks.sql.ast.warehouse.CreateWarehouseStmt;
 import com.starrocks.sql.ast.warehouse.DropWarehouseStmt;
@@ -472,6 +480,9 @@ public class DDLStmtExecutor {
 
         @Override
         public ShowResultSet visitCallProcedureStatement(CallProcedureStatement stmt, ConnectContext context) {
+            if (stmt.getStoredProcedure() != null) {
+                return ProcedureExecutor.call(stmt, context);
+            }
             ErrorReport.wrapWithRuntimeException(() -> {
                 // Execute the procedure
                 context.getGlobalStateMgr().getMetadataMgr().callProcedure(stmt, context);
@@ -1158,6 +1169,40 @@ public class DDLStmtExecutor {
         }
 
         @Override
+        public ShowResultSet visitCreateProcedureStatement(CreateProcedureStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> ProcedureExecutor.create(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitDropProcedureStatement(DropProcedureStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> ProcedureExecutor.drop(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitExecuteImmediateStatement(ExecuteImmediateStmt stmt, ConnectContext context) {
+            return ProcedureExecutor.executeImmediate(stmt, context);
+        }
+
+        @Override
+        public ShowResultSet visitCreateTaskStatement(CreateTaskStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> UserTaskExecutor.createTask(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitAlterTaskOptionsStatement(AlterTaskOptionsStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> UserTaskExecutor.alterTask(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitExecuteTaskStatement(ExecuteTaskStmt stmt, ConnectContext context) {
+            return UserTaskExecutor.executeTask(stmt);
+        }
+
+        @Override
         public ShowResultSet visitDropTaskStmt(DropTaskStmt dropTaskStmt, ConnectContext context) {
             TaskManager taskManager = context.getGlobalStateMgr().getTaskManager();
             String taskName = dropTaskStmt.getTaskName().getName();
@@ -1180,6 +1225,7 @@ public class DDLStmtExecutor {
                             "or DROP TASK ... FORCE to delete this task directly.");
                 }
             }
+            taskManager.detachUserTaskFromGraph(task);
             taskManager.dropTasks(Collections.singletonList(task.getId()));
             return null;
         }
@@ -1195,6 +1241,9 @@ public class DDLStmtExecutor {
                 throw new SemanticException("Task " + taskName + " is not exist");
             }
             Task task = taskManager.getTask(taskName);
+            if (alterTaskStmt.getAction() != AlterTaskStmt.AlterAction.SET) {
+                ErrorReport.wrapWithRuntimeException(() -> taskManager.checkUserTaskGraphRootSuspended(task));
+            }
             switch (alterTaskStmt.getAction()) {
                 case RESUME:
                     taskManager.resumeTask(task, false);

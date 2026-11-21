@@ -270,6 +270,7 @@ import com.starrocks.thrift.TGetTasksParams;
 import com.starrocks.thrift.TStorageMedium;
 import com.starrocks.thrift.TStorageType;
 import com.starrocks.thrift.TTabletMetaType;
+import com.starrocks.timetravel.TimeTravelRetention;
 import com.starrocks.warehouse.Warehouse;
 import com.starrocks.warehouse.cngroup.CRAcquireContext;
 import com.starrocks.warehouse.cngroup.ComputeResource;
@@ -4742,6 +4743,13 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
         }
         if (propertiesToPersist.containsKey(PropertyAnalyzer.PROPERTIES_LOAD_INITIAL_OPEN_PARTITION_NUMBER)) {
             alterLoadInitialOpenPartitionNumber(table, properties, appliers);
+        }
+        if (propertiesToPersist.containsKey(PropertyAnalyzer.PROPERTIES_DATA_RETENTION_TIME_IN_DAYS)) {
+            int days = PropertyAnalyzer.analyzeDataRetentionTimeInDays(properties, true);
+            TimeTravelRetention.checkTableSupported(table);
+            propertiesToPersist.put(PropertyAnalyzer.PROPERTIES_DATA_RETENTION_TIME_IN_DAYS, String.valueOf(days));
+            appliers.add(() -> table.getTableProperty().modifyTableProperties(
+                    PropertyAnalyzer.PROPERTIES_DATA_RETENTION_TIME_IN_DAYS, String.valueOf(days)));
         }
         if (propertiesToPersist.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
             alterStorageMedium(table, properties,  appliers);

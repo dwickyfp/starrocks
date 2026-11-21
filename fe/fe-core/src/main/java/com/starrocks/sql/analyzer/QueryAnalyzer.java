@@ -118,6 +118,7 @@ import com.starrocks.sql.common.MetaUtils;
 import com.starrocks.sql.common.TypeManager;
 import com.starrocks.sql.optimizer.dump.HiveMetaStoreTableDumpInfo;
 import com.starrocks.sql.parser.NodePosition;
+import com.starrocks.timetravel.TimeTravelResolver;
 import com.starrocks.type.BooleanType;
 import com.starrocks.type.IntegerType;
 import com.starrocks.type.NullType;
@@ -946,7 +947,11 @@ public class QueryAnalyzer {
 
                     r = viewRelation;
                 } else {
-                    if (hasTemporalClause(tableRelation) && !table.isTemporal()) {
+                    if (hasTemporalClause(tableRelation) && table instanceof OlapTable && !table.isTemporal()) {
+                        TimeTravelResolver.resolve(tableRelation, (OlapTable) table, session);
+                    } else if (table instanceof OlapTable && !hasTemporalClause(tableRelation)) {
+                        session.addCurrentReadTable(table.getId(), table.getName());
+                    } else if (hasTemporalClause(tableRelation) && !table.isTemporal()) {
                         throw unsupportedException("Unsupported table type for temporal clauses, table type: " +
                                 table.getType());
                     }

@@ -48,9 +48,19 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
+import com.starrocks.sql.ast.procedure.DescProcedureStmt;
+import com.starrocks.sql.ast.procedure.DropProcedureStmt;
+import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
+import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
+import com.starrocks.sql.ast.task.CreateTaskStmt;
+import com.starrocks.sql.ast.task.DescTaskStmt;
+import com.starrocks.sql.ast.task.ExecuteTaskStmt;
+import com.starrocks.sql.ast.task.ShowTasksStmt;
 
 public interface AstVisitorExtendInterface<R, C> extends AstVisitor<R, C> {
 
@@ -471,6 +481,50 @@ public interface AstVisitorExtendInterface<R, C> extends AstVisitor<R, C> {
 
     default R visitDescPipeStatement(DescPipeStmt statement, C context) {
         return visitShowStatement(statement, context);
+    }
+
+    // ---------------------------------------- Snowflake style Task Statement ---------------------------------------
+
+    default R visitCreateTaskStatement(CreateTaskStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitAlterTaskOptionsStatement(AlterTaskOptionsStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitExecuteTaskStatement(ExecuteTaskStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitShowTasksStatement(ShowTasksStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    default R visitDescTaskStatement(DescTaskStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    // ---------------------------------------- Snowflake style Stored Procedure --------------------------------------
+
+    default R visitCreateProcedureStatement(CreateProcedureStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitDropProcedureStatement(DropProcedureStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitShowProceduresStatement(ShowProceduresStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    default R visitDescProcedureStatement(DescProcedureStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    default R visitExecuteImmediateStatement(ExecuteImmediateStmt statement, C context) {
+        return visitDDLStatement(statement, context);
     }
 
     // ---------------------------------------- FailPoint Statement ----------------------------------------------------

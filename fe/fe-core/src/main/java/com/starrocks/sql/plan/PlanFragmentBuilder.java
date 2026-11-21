@@ -414,7 +414,7 @@ public class PlanFragmentBuilder {
         if (!execPlan.getConnectContext().getSessionVariable().isEnableQueryCache()) {
             return false;
         }
-        return true;
+        return !execPlan.getConnectContext().hasTimeTravel();
     }
 
     private static ExecPlan finalizeFragments(ExecPlan execPlan, TResultSinkType resultSinkType) {

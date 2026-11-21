@@ -80,8 +80,12 @@ statement
 
     // Task Statement
     | submitTaskStatement
+    | createTaskStatement
     | alterTaskStatement
     | dropTaskStatement
+    | executeTaskStatement
+    | showTasksStatement
+    | descTaskStatement
 
     // Materialized View Statement
     | createMaterializedViewStatement
@@ -387,6 +391,11 @@ statement
 
     // Procedure Statement
     | callProcedureStatement
+    | createProcedureStatement
+    | dropProcedureStatement
+    | showProceduresStatement
+    | descProcedureStatement
+    | executeImmediateStatement
 
     // Unsupported Statement
     | unsupportedStatement
@@ -714,6 +723,59 @@ submitTaskStatement
 
 alterTaskStatement
     : ALTER TASK (IF EXISTS)? qualifiedName (RESUME | SUSPEND | SET propertyList)
+    | ALTER TASK (IF EXISTS)? qualifiedName SET taskOption+
+    | ALTER TASK (IF EXISTS)? qualifiedName UNSET identifier (',' identifier)*
+    | ALTER TASK (IF EXISTS)? qualifiedName MODIFY AS taskBody
+    | ALTER TASK (IF EXISTS)? qualifiedName (ADD | REMOVE) AFTER taskPredecessorList
+    | ALTER TASK (IF EXISTS)? qualifiedName MODIFY WHEN taskCondition
+    | ALTER TASK (IF EXISTS)? qualifiedName REMOVE WHEN
+    ;
+
+// Snowflake style task:
+// CREATE TASK name [option = value ...] [AFTER task [, task ...]] [WHEN condition] AS <statement | $$ script $$>
+createTaskStatement
+    : CREATE (OR REPLACE)? TASK (IF NOT EXISTS)? qualifiedName
+        taskOption*
+        (AFTER taskPredecessorList)?
+        (WHEN taskCondition)?
+        AS taskBody
+    ;
+
+taskPredecessorList
+    : qualifiedName (',' qualifiedName)*
+    ;
+
+// Only SYSTEM$PREDECESSORS_STATE('<state>') is supported.
+taskCondition
+    : functionName=identifier '(' state=string ')'
+    ;
+
+taskOption
+    : key=identifier EQ value=taskOptionValue
+    ;
+
+taskOptionValue
+    : string
+    | number
+    | booleanValue
+    | identifier
+    ;
+
+taskBody
+    : ATTACHMENT
+    | statement
+    ;
+
+executeTaskStatement
+    : EXECUTE TASK qualifiedName
+    ;
+
+showTasksStatement
+    : SHOW TASKS ((FROM | IN) db=qualifiedName)? (LIKE pattern=string)?
+    ;
+
+descTaskStatement
+    : (DESC | DESCRIBE) TASK qualifiedName
     ;
 
 taskClause
@@ -2496,6 +2558,40 @@ callProcedureStatement
     : CALL qualifiedName '(' (argumentList)? ')'
     ;
 
+// Snowflake style stored procedure, with a Snowflake Scripting body:
+// CREATE [OR REPLACE] PROCEDURE name(arg type [DEFAULT expr], ...) RETURNS type LANGUAGE SQL
+//   [EXECUTE AS OWNER | CALLER] [COMMENT 'text'] AS $$ ... $$
+createProcedureStatement
+    : CREATE (OR REPLACE)? PROCEDURE (IF NOT EXISTS)? qualifiedName
+        '(' (procedureParameter (',' procedureParameter)*)? ')'
+        RETURNS returnType=type (retNotNull=NOT NULL)?
+        LANGUAGE (SQL | language=identifier)
+        (EXECUTE AS (OWNER | CALLER))?
+        (COMMENT procedureComment=string)?
+        AS (ATTACHMENT | body=string)
+    ;
+
+procedureParameter
+    : identifier type (DEFAULT expression)?
+    ;
+
+dropProcedureStatement
+    : DROP PROCEDURE (IF EXISTS)? qualifiedName ('(' typeList ')')?
+    ;
+
+showProceduresStatement
+    : SHOW PROCEDURES ((FROM | IN) db=qualifiedName)? (LIKE pattern=string)?
+    ;
+
+descProcedureStatement
+    : (DESC | DESCRIBE) PROCEDURE qualifiedName ('(' typeList ')')?
+    ;
+
+// EXECUTE IMMEDIATE $$ <Snowflake Scripting block> $$ | 'statement'
+executeImmediateStatement
+    : EXECUTE IMMEDIATE (ATTACHMENT | string)
+    ;
+
 // ------------------------------------------- Query Statement ---------------------------------------------------------
 
 queryStatement
@@ -2518,6 +2614,12 @@ queryPeriod
     | FOR? periodType FROM expression TO expression
     | FOR? periodType ALL
     | FOR? periodType AS OF end=expression
+    ;
+
+// Snowflake time travel: AT(TIMESTAMP => expr), AT(OFFSET => seconds), BEFORE(TIMESTAMP => expr)
+timeTravelClause
+    : AT_TIME_TRAVEL '(' (TIMESTAMP | OFFSET) '=>' expression ')'
+    | BEFORE '(' TIMESTAMP '=>' expression ')'
     ;
 
 periodType
@@ -2610,7 +2712,7 @@ relation
     ;
 
 relationPrimary
-    : qualifiedName queryPeriod? partitionNames? tabletList? replicaList? sampleClause? (
+    : qualifiedName (queryPeriod | timeTravelClause)? partitionNames? tabletList? replicaList? sampleClause? (
         AS? alias=identifier)? bracketHint? (BEFORE ts=string)?                          #tableAtom
     | '(' VALUES rowConstructor (',' rowConstructor)* ')'
         (AS? alias=identifier columnAliases?)?                                          #inlineTable
@@ -3405,7 +3507,7 @@ number
     ;
 
 nonReserved
-    : ACCESS | ACTIVE | ADVISOR | AFTER | AGGREGATE | AI | APPLY | ASYNC | AUTHORS | AVG | ADMIN | ANTI | AUTHENTICATION | AUTO_INCREMENT | AUTOMATED
+    : ACCESS | ACTIVE | ADVISOR | AFTER | AGGREGATE | AI | APPLY | ASYNC | AT_TIME_TRAVEL | AUTHORS | AVG | ADMIN | ANTI | AUTHENTICATION | AUTO_INCREMENT | AUTOMATED
     | ARRAY_AGG | ARRAY_AGG_DISTINCT | ASSERT_ROWS | AWARE
     | BACKEND | BACKENDS | BACKUP | BEGIN | BITMAP_UNION | BLACKLIST | BLACKHOLE | BINARY | BODY | BOOLEAN | BRANCH | BROKER | BUCKETS | BOTH
     | BUILTIN | BASE | BEFORE | BASELINE
@@ -3434,7 +3536,7 @@ nonReserved
     | SAMPLE | SCHEDULE | SCHEDULER | SECOND | SECURITY | SEPARATOR | SERIALIZABLE |SEMI | SESSION | SETS | SIGNED | SNAPSHOT | SNAPSHOTS | SPLIT | SQL | SQLBLACKLIST | START | STARROCKS
     | STREAM | SUM | STATUS | STOP | SKIP_KW | SKIP_HEADER | SWAP
     | STORAGE| STRING | STRING_AGG | STRUCT | STATS | SUBMIT | SUSPEND | SYNC | SYSTEM | SYSTEM_TIME
-    | TABLES | TABLET | TABLETS | TAG | TASK | TEMPORARY | TIMESTAMP | TIMESTAMPADD | TIMESTAMPDIFF | THAN | TIME | TIMES | TRANSACTION | TRANSFER | TRACE | TRANSLATE
+    | TABLES | TABLET | TABLETS | TAG | TASK | TASKS | CALLER | LANGUAGE | OWNER | PROCEDURES | TEMPORARY | TIMESTAMP | TIMESTAMPADD | TIMESTAMPDIFF | THAN | TIME | TIMES | TRANSACTION | TRANSFER | TRACE | TRANSLATE
     | TRIM_SPACE | TRAILING | TRIM
     | TRIGGERS | TRUNCATE | TYPE | TYPES
     | UNBOUNDED | UNCOMMITTED | UNSET | UNINSTALL | USAGE | USER | USERS | UNLOCK

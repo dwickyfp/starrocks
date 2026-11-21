@@ -886,3 +886,39 @@ The multi-partition path extends Sample-Based Tablet Pre-Split to loads that tar
 #### Production deployment guidance
 
 Set `enable_execute_script_on_frontend = false` in production. Sample-Based Tablet Pre-Split exposes no SQL surface that depends on FE-side script execution; the production code paths sample through the connector + planner directly. Leaving `enable_execute_script_on_frontend = true` widens the FE attack surface without enabling any pre-split functionality, so the safe default for production clusters is to keep it off.
+
+### `time_travel_max_retention_days`
+
+- Default: 90
+- Type: Int
+- Unit: Days
+- Is mutable: Yes
+- Description: The largest `data_retention_time_in_days` that the global variable or a table property accepts for time travel on native tables.
+- Introduced in: -
+
+### `time_travel_max_versions_per_partition`
+
+- Default: 1000
+- Type: Int
+- Unit: -
+- Is mutable: Yes
+- Description: How many (version, time) points each physical partition of a table with time travel keeps. A point in time older than the oldest point kept cannot be read, even inside the retention period.
+- Introduced in: -
+
+### `enable_time_travel_be_config_sync`
+
+- Default: true
+- Type: Boolean
+- Unit: -
+- Is mutable: Yes
+- Description: Whether the leader FE raises the BE configuration `tablet_rowset_stale_sweep_time_sec` to the longest `data_retention_time_in_days` (plus one hour), so that BEs keep the old versions time travel reads. It is applied again to a BE that restarts and set back to the BE default (1800 seconds) when no table needs more.
+- Introduced in: -
+
+### `time_travel_be_config_sync_interval_sec`
+
+- Default: 60
+- Type: Long
+- Unit: Seconds
+- Is mutable: Yes
+- Description: How often the leader FE checks and applies the BE configuration for time travel.
+- Introduced in: -
