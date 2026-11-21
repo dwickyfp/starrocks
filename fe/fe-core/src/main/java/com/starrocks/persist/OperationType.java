@@ -753,6 +753,13 @@ public class OperationType {
     @IgnorableOnReplayFailed
     public static final short OP_SET_DEFAULT_AI_PROVIDER = 20743;
 
+    // Snowflake style stored procedures. Kept far from the upstream ranges so they never collide.
+    @IgnorableOnReplayFailed
+    public static final short OP_CREATE_PROCEDURE = 30001;
+
+    @IgnorableOnReplayFailed
+    public static final short OP_DROP_PROCEDURE = 30002;
+
     public static final ImmutableSet<Short> IGNORABLE_OPERATIONS = buildIgnorableOperations();
 
     private static ImmutableSet<Short> buildIgnorableOperations() {
@@ -784,7 +791,9 @@ public class OperationType {
                     opType != OP_CREATE_AI_PROVIDER &&
                     opType != OP_ALTER_AI_PROVIDER &&
                     opType != OP_DROP_AI_PROVIDER &&
-                    opType != OP_SET_DEFAULT_AI_PROVIDER) {
+                    opType != OP_SET_DEFAULT_AI_PROVIDER &&
+                    opType != OP_CREATE_PROCEDURE &&
+                    opType != OP_DROP_PROCEDURE) {
                 LOG.fatal("OperationType cannot use a value exceeding 20000, " +
                         "and an error will be reported if it exceeds : {} = {}", field.getName(), opType);
                 System.exit(-1);

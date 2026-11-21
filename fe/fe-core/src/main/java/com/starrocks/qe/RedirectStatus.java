@@ -264,6 +264,11 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
+import com.starrocks.sql.ast.procedure.DescProcedureStmt;
+import com.starrocks.sql.ast.procedure.DropProcedureStmt;
+import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
+import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
@@ -1627,6 +1632,32 @@ public class RedirectStatus {
         @Override
         public RedirectStatus visitDescTaskStatement(DescTaskStmt statement, Void context) {
             return RedirectStatus.FORWARD_NO_SYNC;
+        }
+
+        @Override
+        public RedirectStatus visitCreateProcedureStatement(CreateProcedureStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitDropProcedureStatement(DropProcedureStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitShowProceduresStatement(ShowProceduresStmt statement, Void context) {
+            return RedirectStatus.NO_FORWARD;
+        }
+
+        @Override
+        public RedirectStatus visitDescProcedureStatement(DescProcedureStmt statement, Void context) {
+            return RedirectStatus.NO_FORWARD;
+        }
+
+        @Override
+        public RedirectStatus visitExecuteImmediateStatement(ExecuteImmediateStmt statement, Void context) {
+            // like CALL: the statements inside run in the session, so they forward on their own
+            return RedirectStatus.NO_FORWARD;
         }
 
         @Override

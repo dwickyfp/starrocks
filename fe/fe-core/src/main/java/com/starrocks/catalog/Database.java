@@ -53,6 +53,7 @@ import com.starrocks.common.util.concurrent.lock.LockType;
 import com.starrocks.common.util.concurrent.lock.Locker;
 import com.starrocks.memory.estimate.IgnoreMemoryTrack;
 import com.starrocks.persist.DropInfo;
+import com.starrocks.procedure.StoredProcedure;
 import com.starrocks.server.CatalogMgr;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.statistic.StatsConstants;
@@ -103,6 +104,9 @@ public class Database extends MetaObject implements Writable {
     private volatile long dataQuotaBytes;
     @SerializedName(value = "r")
     private volatile long replicaQuotaSize;
+    // Snowflake style stored procedures, by lower-case name, see StoredProcedureMgr
+    @SerializedName(value = "sp")
+    private ConcurrentMap<String, StoredProcedure> storedProcedures = Maps.newConcurrentMap();
 
     @IgnoreMemoryTrack
     private final Map<String, Table> nameToTable;
@@ -143,6 +147,13 @@ public class Database extends MetaObject implements Writable {
         this.dataQuotaBytes = FeConstants.DEFAULT_DB_DATA_QUOTA_BYTES;
         this.replicaQuotaSize = FeConstants.DEFAULT_DB_REPLICA_QUOTA_SIZE;
         this.location = location;
+    }
+
+    public ConcurrentMap<String, StoredProcedure> getStoredProcedures() {
+        if (storedProcedures == null) {
+            storedProcedures = Maps.newConcurrentMap();
+        }
+        return storedProcedures;
     }
 
     public long getId() {

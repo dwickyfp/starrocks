@@ -48,6 +48,11 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
+import com.starrocks.sql.ast.procedure.DescProcedureStmt;
+import com.starrocks.sql.ast.procedure.DropProcedureStmt;
+import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
+import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
@@ -498,6 +503,28 @@ public interface AstVisitorExtendInterface<R, C> extends AstVisitor<R, C> {
 
     default R visitDescTaskStatement(DescTaskStmt statement, C context) {
         return visitShowStatement(statement, context);
+    }
+
+    // ---------------------------------------- Snowflake style Stored Procedure --------------------------------------
+
+    default R visitCreateProcedureStatement(CreateProcedureStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitDropProcedureStatement(DropProcedureStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitShowProceduresStatement(ShowProceduresStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    default R visitDescProcedureStatement(DescProcedureStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    default R visitExecuteImmediateStatement(ExecuteImmediateStmt statement, C context) {
+        return visitDDLStatement(statement, context);
     }
 
     // ---------------------------------------- FailPoint Statement ----------------------------------------------------

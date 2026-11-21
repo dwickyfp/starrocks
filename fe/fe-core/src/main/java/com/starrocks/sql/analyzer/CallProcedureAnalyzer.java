@@ -16,6 +16,8 @@ package com.starrocks.sql.analyzer;
 
 import com.starrocks.connector.Procedure;
 import com.starrocks.connector.iceberg.procedure.NamedArgument;
+import com.starrocks.procedure.ProcedureExecutor;
+import com.starrocks.procedure.StoredProcedure;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.AstVisitorExtendInterface;
@@ -48,6 +50,12 @@ public class CallProcedureAnalyzer {
             QualifiedName qualifiedName = stmt.getQualifiedName();
             if (qualifiedName.getParts().isEmpty()) {
                 throw new SemanticException("Procedure name cannot be empty", stmt);
+            }
+            // A Snowflake style stored procedure of the internal catalog; its arguments are checked when it runs.
+            StoredProcedure storedProcedure = ProcedureExecutor.resolve(qualifiedName.getParts(), context);
+            if (storedProcedure != null) {
+                stmt.setStoredProcedure(storedProcedure);
+                return null;
             }
             QualifiedName normalizeQualifiedName = normalizeQualifiedName(qualifiedName, context);
             stmt.setQualifiedName(normalizeQualifiedName);

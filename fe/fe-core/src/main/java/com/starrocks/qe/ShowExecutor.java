@@ -136,6 +136,7 @@ import com.starrocks.load.streamload.AbstractStreamLoadTask;
 import com.starrocks.load.streamload.StreamLoadFunctionalExprProvider;
 import com.starrocks.meta.BlackListSql;
 import com.starrocks.persist.TableRefPersist;
+import com.starrocks.procedure.ProcedureExecutor;
 import com.starrocks.proto.FailPointTriggerModeType;
 import com.starrocks.proto.PFailPointInfo;
 import com.starrocks.proto.PFailPointTriggerMode;
@@ -264,6 +265,8 @@ import com.starrocks.sql.ast.integration.ShowSecurityIntegrationStatement;
 import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.procedure.DescProcedureStmt;
+import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
 import com.starrocks.sql.ast.task.DescTaskStmt;
 import com.starrocks.sql.ast.task.ShowTasksStmt;
@@ -3494,6 +3497,16 @@ public class ShowExecutor {
         @Override
         public ShowResultSet visitDescTaskStatement(DescTaskStmt statement, ConnectContext context) {
             return UserTaskExecutor.descTask(statement, context);
+        }
+
+        @Override
+        public ShowResultSet visitShowProceduresStatement(ShowProceduresStmt statement, ConnectContext context) {
+            return ProcedureExecutor.show(statement, context);
+        }
+
+        @Override
+        public ShowResultSet visitDescProcedureStatement(DescProcedureStmt statement, ConnectContext context) {
+            return ProcedureExecutor.desc(statement, context);
         }
 
         @Override

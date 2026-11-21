@@ -33,6 +33,7 @@ import com.starrocks.common.proc.ProcService;
 import com.starrocks.common.proc.RollupProcDir;
 import com.starrocks.common.proc.SchemaChangeProcDir;
 import com.starrocks.common.proc.TransProcDir;
+import com.starrocks.procedure.ProcedureExecutor;
 import com.starrocks.scheduler.UserTaskExecutor;
 import com.starrocks.sql.ast.AdminRepairTableStmt;
 import com.starrocks.sql.ast.AdminShowAutomatedSnapshotStmt;
@@ -129,6 +130,8 @@ import com.starrocks.sql.ast.group.ShowGroupProvidersStmt;
 import com.starrocks.sql.ast.integration.ShowSecurityIntegrationStatement;
 import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.procedure.DescProcedureStmt;
+import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
 import com.starrocks.sql.ast.task.DescTaskStmt;
 import com.starrocks.sql.ast.task.ShowTasksStmt;
@@ -672,6 +675,16 @@ public class ShowResultMetaFactory implements AstVisitorExtendInterface<ShowResu
     @Override
     public ShowResultSetMetaData visitDescTaskStatement(DescTaskStmt statement, Void context) {
         return UserTaskExecutor.TASK_META_DATA;
+    }
+
+    @Override
+    public ShowResultSetMetaData visitShowProceduresStatement(ShowProceduresStmt statement, Void context) {
+        return ProcedureExecutor.SHOW_META_DATA;
+    }
+
+    @Override
+    public ShowResultSetMetaData visitDescProcedureStatement(DescProcedureStmt statement, Void context) {
+        return ProcedureExecutor.DESC_META_DATA;
     }
 
     @Override

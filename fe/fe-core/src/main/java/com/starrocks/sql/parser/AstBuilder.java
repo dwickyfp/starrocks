@@ -529,6 +529,11 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
+import com.starrocks.sql.ast.procedure.DescProcedureStmt;
+import com.starrocks.sql.ast.procedure.DropProcedureStmt;
+import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
+import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
@@ -1886,6 +1891,85 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             parameters.forEach(v -> procedureArguments.add(new ProcedureArgument(null, v)));
         }
         return new CallProcedureStatement(qualifiedName, procedureArguments, createPos(context));
+    }
+
+    // ------------------------------------------- Stored Procedure ---------------------------------------------------
+
+    @Override
+    public ParseNode visitCreateProcedureStatement(
+            com.starrocks.sql.parser.StarRocksParser.CreateProcedureStatementContext context) {
+        boolean orReplace = context.REPLACE() != null;
+        boolean ifNotExists = context.IF() != null;
+        if (orReplace && ifNotExists) {
+            throw new ParsingException("OR REPLACE and IF NOT EXISTS cannot be used together", createPos(context));
+        }
+        List<CreateProcedureStmt.Parameter> parameters = new ArrayList<>();
+        for (com.starrocks.sql.parser.StarRocksParser.ProcedureParameterContext p : context.procedureParameter()) {
+            String name = ((Identifier) visit(p.identifier())).getValue();
+            String typeSql = TypeParser.getType(p.type()).toSql();
+            String defaultSql = p.expression() == null ? null : extractRawText(p.expression());
+            parameters.add(new CreateProcedureStmt.Parameter(name, typeSql, defaultSql));
+        }
+        String returnTypeSql = TypeParser.getType(context.returnType).toSql();
+        String language = context.SQL() != null ? "SQL" : ((Identifier) visit(context.language)).getValue();
+        boolean executeAsCaller = context.CALLER() != null;
+        String comment = context.procedureComment == null ? null
+                : ((StringLiteral) visit(context.procedureComment)).getValue();
+        String body;
+        if (context.ATTACHMENT() != null) {
+            String content = context.ATTACHMENT().getText();
+            body = content.substring(2, content.length() - 2);
+        } else {
+            body = ((StringLiteral) visit(context.body)).getValue();
+        }
+        return new CreateProcedureStmt(getQualifiedName(context.qualifiedName()), orReplace, ifNotExists, parameters,
+                returnTypeSql, context.retNotNull != null, language, executeAsCaller, comment, body, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitDropProcedureStatement(
+            com.starrocks.sql.parser.StarRocksParser.DropProcedureStatementContext context) {
+        return new DropProcedureStmt(getQualifiedName(context.qualifiedName()), context.IF() != null,
+                getProcedureArgTypes(context.typeList()), createPos(context));
+    }
+
+    @Override
+    public ParseNode visitShowProceduresStatement(
+            com.starrocks.sql.parser.StarRocksParser.ShowProceduresStatementContext context) {
+        String dbName = context.db == null ? null : normalizeName(getQualifiedName(context.db).toString());
+        String pattern = context.pattern == null ? null : ((StringLiteral) visit(context.pattern)).getValue();
+        return new ShowProceduresStmt(dbName, pattern, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitDescProcedureStatement(
+            com.starrocks.sql.parser.StarRocksParser.DescProcedureStatementContext context) {
+        return new DescProcedureStmt(getQualifiedName(context.qualifiedName()),
+                getProcedureArgTypes(context.typeList()), createPos(context));
+    }
+
+    @Override
+    public ParseNode visitExecuteImmediateStatement(
+            com.starrocks.sql.parser.StarRocksParser.ExecuteImmediateStatementContext context) {
+        String script;
+        if (context.ATTACHMENT() != null) {
+            String content = context.ATTACHMENT().getText();
+            script = content.substring(2, content.length() - 2);
+        } else {
+            script = ((StringLiteral) visit(context.string())).getValue();
+        }
+        return new ExecuteImmediateStmt(script, createPos(context));
+    }
+
+    private List<String> getProcedureArgTypes(com.starrocks.sql.parser.StarRocksParser.TypeListContext typeList) {
+        if (typeList == null) {
+            return null;
+        }
+        List<String> types = new ArrayList<>();
+        for (com.starrocks.sql.parser.StarRocksParser.TypeContext type : typeList.type()) {
+            types.add(TypeParser.getType(type).toSql());
+        }
+        return types;
     }
 
     @Override

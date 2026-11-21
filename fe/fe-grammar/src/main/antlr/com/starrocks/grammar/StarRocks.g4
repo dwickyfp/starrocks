@@ -391,6 +391,11 @@ statement
 
     // Procedure Statement
     | callProcedureStatement
+    | createProcedureStatement
+    | dropProcedureStatement
+    | showProceduresStatement
+    | descProcedureStatement
+    | executeImmediateStatement
 
     // Unsupported Statement
     | unsupportedStatement
@@ -2553,6 +2558,40 @@ callProcedureStatement
     : CALL qualifiedName '(' (argumentList)? ')'
     ;
 
+// Snowflake style stored procedure, with a Snowflake Scripting body:
+// CREATE [OR REPLACE] PROCEDURE name(arg type [DEFAULT expr], ...) RETURNS type LANGUAGE SQL
+//   [EXECUTE AS OWNER | CALLER] [COMMENT 'text'] AS $$ ... $$
+createProcedureStatement
+    : CREATE (OR REPLACE)? PROCEDURE (IF NOT EXISTS)? qualifiedName
+        '(' (procedureParameter (',' procedureParameter)*)? ')'
+        RETURNS returnType=type (retNotNull=NOT NULL)?
+        LANGUAGE (SQL | language=identifier)
+        (EXECUTE AS (OWNER | CALLER))?
+        (COMMENT procedureComment=string)?
+        AS (ATTACHMENT | body=string)
+    ;
+
+procedureParameter
+    : identifier type (DEFAULT expression)?
+    ;
+
+dropProcedureStatement
+    : DROP PROCEDURE (IF EXISTS)? qualifiedName ('(' typeList ')')?
+    ;
+
+showProceduresStatement
+    : SHOW PROCEDURES ((FROM | IN) db=qualifiedName)? (LIKE pattern=string)?
+    ;
+
+descProcedureStatement
+    : (DESC | DESCRIBE) PROCEDURE qualifiedName ('(' typeList ')')?
+    ;
+
+// EXECUTE IMMEDIATE $$ <Snowflake Scripting block> $$ | 'statement'
+executeImmediateStatement
+    : EXECUTE IMMEDIATE (ATTACHMENT | string)
+    ;
+
 // ------------------------------------------- Query Statement ---------------------------------------------------------
 
 queryStatement
@@ -3491,7 +3530,7 @@ nonReserved
     | SAMPLE | SCHEDULE | SCHEDULER | SECOND | SECURITY | SEPARATOR | SERIALIZABLE |SEMI | SESSION | SETS | SIGNED | SNAPSHOT | SNAPSHOTS | SPLIT | SQL | SQLBLACKLIST | START | STARROCKS
     | STREAM | SUM | STATUS | STOP | SKIP_KW | SKIP_HEADER | SWAP
     | STORAGE| STRING | STRING_AGG | STRUCT | STATS | SUBMIT | SUSPEND | SYNC | SYSTEM | SYSTEM_TIME
-    | TABLES | TABLET | TABLETS | TAG | TASK | TASKS | TEMPORARY | TIMESTAMP | TIMESTAMPADD | TIMESTAMPDIFF | THAN | TIME | TIMES | TRANSACTION | TRANSFER | TRACE | TRANSLATE
+    | TABLES | TABLET | TABLETS | TAG | TASK | TASKS | CALLER | LANGUAGE | OWNER | PROCEDURES | TEMPORARY | TIMESTAMP | TIMESTAMPADD | TIMESTAMPDIFF | THAN | TIME | TIMES | TRANSACTION | TRANSFER | TRACE | TRANSLATE
     | TRIM_SPACE | TRAILING | TRIM
     | TRIGGERS | TRUNCATE | TYPE | TYPES
     | UNBOUNDED | UNCOMMITTED | UNSET | UNINSTALL | USAGE | USER | USERS | UNLOCK

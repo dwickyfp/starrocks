@@ -39,6 +39,7 @@ import com.starrocks.datacache.DataCacheSelectExecutor;
 import com.starrocks.datacache.DataCacheSelectMetrics;
 import com.starrocks.lake.TabletRepairHelper;
 import com.starrocks.load.EtlJobType;
+import com.starrocks.procedure.ProcedureExecutor;
 import com.starrocks.scheduler.Constants;
 import com.starrocks.scheduler.Task;
 import com.starrocks.scheduler.TaskManager;
@@ -164,6 +165,9 @@ import com.starrocks.sql.ast.integration.DropSecurityIntegrationStatement;
 import com.starrocks.sql.ast.pipe.AlterPipeStmt;
 import com.starrocks.sql.ast.pipe.CreatePipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
+import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
+import com.starrocks.sql.ast.procedure.DropProcedureStmt;
+import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
 import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
@@ -476,6 +480,9 @@ public class DDLStmtExecutor {
 
         @Override
         public ShowResultSet visitCallProcedureStatement(CallProcedureStatement stmt, ConnectContext context) {
+            if (stmt.getStoredProcedure() != null) {
+                return ProcedureExecutor.call(stmt, context);
+            }
             ErrorReport.wrapWithRuntimeException(() -> {
                 // Execute the procedure
                 context.getGlobalStateMgr().getMetadataMgr().callProcedure(stmt, context);
@@ -1159,6 +1166,23 @@ public class DDLStmtExecutor {
             } catch (StarRocksException e) {
                 throw new RuntimeException(e);
             }
+        }
+
+        @Override
+        public ShowResultSet visitCreateProcedureStatement(CreateProcedureStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> ProcedureExecutor.create(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitDropProcedureStatement(DropProcedureStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> ProcedureExecutor.drop(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitExecuteImmediateStatement(ExecuteImmediateStmt stmt, ConnectContext context) {
+            return ProcedureExecutor.executeImmediate(stmt, context);
         }
 
         @Override

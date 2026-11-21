@@ -259,6 +259,11 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
+import com.starrocks.sql.ast.procedure.DescProcedureStmt;
+import com.starrocks.sql.ast.procedure.DropProcedureStmt;
+import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
+import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
 import com.starrocks.sql.ast.task.CreateTaskStmt;
 import com.starrocks.sql.ast.task.DescTaskStmt;
@@ -2432,6 +2437,45 @@ public class AuthorizerStmtVisitor implements AstVisitorExtendInterface<Void, Co
     @Override
     public Void visitExecuteTaskStatement(ExecuteTaskStmt statement, ConnectContext context) {
         checkTaskOwnerOrOperate(statement.getTaskName().getName(), context);
+        return null;
+    }
+
+    @Override
+    public Void visitCreateProcedureStatement(CreateProcedureStmt statement, ConnectContext context) {
+        // A procedure needs a privilege on its database; replacing one needs to own it or hold OPERATE, which
+        // ProcedureExecutor checks. Its body is checked statement by statement when it runs.
+        List<String> parts = statement.getName().getParts();
+        String dbName = parts.size() >= 2 ? parts.get(parts.size() - 2) : context.getDatabase();
+        try {
+            Authorizer.checkAnyActionOnOrInDb(context, InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME, dbName);
+        } catch (AccessDeniedException e) {
+            AccessDeniedException.reportAccessDenied(InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME,
+                    context.getCurrentUserIdentity(), context.getCurrentRoleIds(),
+                    PrivilegeType.ANY.name(), ObjectType.DATABASE.name(), dbName);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitDropProcedureStatement(DropProcedureStmt statement, ConnectContext context) {
+        // checked by ProcedureExecutor#drop: the owner or OPERATE
+        return null;
+    }
+
+    @Override
+    public Void visitShowProceduresStatement(ShowProceduresStmt statement, ConnectContext context) {
+        // lists only the procedures the user can see
+        return null;
+    }
+
+    @Override
+    public Void visitDescProcedureStatement(DescProcedureStmt statement, ConnectContext context) {
+        return null;
+    }
+
+    @Override
+    public Void visitExecuteImmediateStatement(ExecuteImmediateStmt statement, ConnectContext context) {
+        // runs as the current user; every statement in it is checked when it runs
         return null;
     }
 
