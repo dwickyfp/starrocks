@@ -6960,6 +6960,12 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             }
         }
 
+        if (context.timeTravelClause() != null) {
+            com.starrocks.sql.parser.StarRocksParser.TimeTravelClauseContext travel = context.timeTravelClause();
+            tableRelation.setQueryPeriodString(buildTimeTravelString(travel));
+            tableRelation.setQueryPeriod(new QueryPeriod(QueryPeriod.PeriodType.TIMESTAMP, buildTimeTravelPoint(travel)));
+        }
+
         if (context.BEFORE() != null) {
             String ts = ((StringLiteral) visit(context.ts)).getStringValue();
             SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -7012,6 +7018,29 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             default:
                 throw new ParsingException("Unsupported query period type: " + token.getText());
         }
+    }
+
+    // AT(TIMESTAMP => t) reads the table as of t, AT(OFFSET => n) as of n seconds from now (n is negative for the past)
+    // and BEFORE(TIMESTAMP => t) just before t; all of them become a point in time.
+    private Expr buildTimeTravelPoint(com.starrocks.sql.parser.StarRocksParser.TimeTravelClauseContext context) {
+        Expr value = (Expr) visit(context.expression());
+        NodePosition pos = createPos(context);
+        if (context.OFFSET() != null) {
+            return new FunctionCallExpr("seconds_add",
+                    Lists.newArrayList(new FunctionCallExpr("now", Lists.newArrayList(), pos), value), pos);
+        }
+        if (context.BEFORE() != null) {
+            return new FunctionCallExpr("milliseconds_sub", Lists.newArrayList(value, new IntLiteral(1)), pos);
+        }
+        return value;
+    }
+
+    private String buildTimeTravelString(com.starrocks.sql.parser.StarRocksParser.TimeTravelClauseContext context) {
+        StringBuilder sb = new StringBuilder();
+        for (ParseTree child : context.children) {
+            sb.append(child.getText()).append(" ");
+        }
+        return sb.toString();
     }
 
     // only used for mysql external table

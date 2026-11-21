@@ -260,6 +260,8 @@ public class AlterTableClauseAnalyzer implements AstVisitorExtendInterface<Void,
             PropertyAnalyzer.analyzePartitionLiveNumber(properties, false);
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_LOAD_INITIAL_OPEN_PARTITION_NUMBER)) {
             PropertyAnalyzer.analyzeLoadInitialOpenPartitionNumber(properties, false);
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DATA_RETENTION_TIME_IN_DAYS)) {
+            PropertyAnalyzer.analyzeDataRetentionTimeInDays(properties, false);
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_TTL)) {
             PropertyAnalyzer.analyzePartitionTTL(properties, false);
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_CONDITION)) {

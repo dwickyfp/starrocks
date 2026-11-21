@@ -671,6 +671,8 @@ public class OlapScanNode extends AbstractOlapTableScanNode {
         String schemaHashStr = String.valueOf(schemaHash);
         ConnectContext ctx = ConnectContext.get();
         long visibleVersion = chooseScanVersion(physicalPartition.getVisibleVersion(), physicalPartition.getId(),
+                ctx == null ? null : ctx.getTimeTravelScanVersions());
+        visibleVersion = chooseScanVersion(visibleVersion, physicalPartition.getId(),
                 ctx == null ? null : ctx.getScanVersionOverride());
         scanPartitionVersions.put(physicalPartition.getId(), visibleVersion);
         String visibleVersionStr = String.valueOf(visibleVersion);

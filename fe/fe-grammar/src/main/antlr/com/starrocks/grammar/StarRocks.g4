@@ -2616,6 +2616,12 @@ queryPeriod
     | FOR? periodType AS OF end=expression
     ;
 
+// Snowflake time travel: AT(TIMESTAMP => expr), AT(OFFSET => seconds), BEFORE(TIMESTAMP => expr)
+timeTravelClause
+    : AT_TIME_TRAVEL '(' (TIMESTAMP | OFFSET) '=>' expression ')'
+    | BEFORE '(' TIMESTAMP '=>' expression ')'
+    ;
+
 periodType
     : SYSTEM_TIME
     | TIMESTAMP
@@ -2706,7 +2712,7 @@ relation
     ;
 
 relationPrimary
-    : qualifiedName queryPeriod? partitionNames? tabletList? replicaList? sampleClause? (
+    : qualifiedName (queryPeriod | timeTravelClause)? partitionNames? tabletList? replicaList? sampleClause? (
         AS? alias=identifier)? bracketHint? (BEFORE ts=string)?                          #tableAtom
     | '(' VALUES rowConstructor (',' rowConstructor)* ')'
         (AS? alias=identifier columnAliases?)?                                          #inlineTable
@@ -3501,7 +3507,7 @@ number
     ;
 
 nonReserved
-    : ACCESS | ACTIVE | ADVISOR | AFTER | AGGREGATE | AI | APPLY | ASYNC | AUTHORS | AVG | ADMIN | ANTI | AUTHENTICATION | AUTO_INCREMENT | AUTOMATED
+    : ACCESS | ACTIVE | ADVISOR | AFTER | AGGREGATE | AI | APPLY | ASYNC | AT_TIME_TRAVEL | AUTHORS | AVG | ADMIN | ANTI | AUTHENTICATION | AUTO_INCREMENT | AUTOMATED
     | ARRAY_AGG | ARRAY_AGG_DISTINCT | ASSERT_ROWS | AWARE
     | BACKEND | BACKENDS | BACKUP | BEGIN | BITMAP_UNION | BLACKLIST | BLACKHOLE | BINARY | BODY | BOOLEAN | BRANCH | BROKER | BUCKETS | BOTH
     | BUILTIN | BASE | BEFORE | BASELINE

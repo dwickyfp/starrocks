@@ -65,6 +65,7 @@ import com.starrocks.system.HeartbeatFlags;
 import com.starrocks.thrift.TCompressionType;
 import com.starrocks.thrift.TTabletInternalParallelMode;
 import com.starrocks.thrift.TWorkGroup;
+import com.starrocks.timetravel.TimeTravelRetention;
 import com.starrocks.type.ArrayType;
 import com.starrocks.type.PrimitiveType;
 import com.starrocks.type.StringType;
@@ -127,6 +128,17 @@ public class SetStmtAnalyzer {
             if (!HeartbeatFlags.isValidRowsetType(resolvedExpression.getStringValue())) {
                 throw new SemanticException("Invalid rowset type, now we support {alpha, beta}.");
             }
+        }
+
+        if (variable.equalsIgnoreCase(GlobalVariable.DATA_RETENTION_TIME_IN_DAYS)) {
+            int days;
+            try {
+                days = Integer.parseInt(resolvedExpression.getStringValue().trim());
+            } catch (NumberFormatException e) {
+                throw new SemanticException("Invalid " + GlobalVariable.DATA_RETENTION_TIME_IN_DAYS + ": "
+                        + resolvedExpression.getStringValue());
+            }
+            TimeTravelRetention.checkDays(GlobalVariable.DATA_RETENTION_TIME_IN_DAYS, days);
         }
 
         if (variable.equalsIgnoreCase("prefer_join_method")) {

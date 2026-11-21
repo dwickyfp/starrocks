@@ -25,6 +25,7 @@ import com.starrocks.catalog.MaterializedIndex.IndexExtState;
 import com.starrocks.catalog.MaterializedIndex.IndexState;
 import com.starrocks.common.FeConstants;
 import com.starrocks.persist.gson.GsonPostProcessable;
+import com.starrocks.timetravel.VersionHistory;
 import com.starrocks.transaction.TransactionType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -211,6 +212,10 @@ public class PhysicalPartition extends MetaObject implements GsonPostProcessable
     // in-flight pass survives an FE restart / failover.
     @SerializedName(value = "vacuumState")
     private volatile VacuumState vacuumState = new VacuumState();
+
+    // (version, visible time) points recorded while the table has time travel retention; null when it never had.
+    @SerializedName(value = "versionHistory")
+    private volatile VersionHistory versionHistory;
 
     @SerializedName(value = "bucketNum")
     private int bucketNum = 0;
@@ -430,6 +435,28 @@ public class PhysicalPartition extends MetaObject implements GsonPostProcessable
         if (newTime > lastUpdateTime) {
             lastUpdateTime = newTime;
         }
+    }
+
+    /**
+     * Records that {@code version} becomes visible at {@code versionTime}, for time travel. The first point also
+     * records the version visible until then, so the history covers the time since the previous load.
+     */
+    public synchronized void recordVersionHistory(long version, long versionTime, long oldestTimeToKeep, int maxPoints) {
+        VersionHistory history = versionHistory;
+        if (history == null) {
+            history = new VersionHistory();
+            history.record(visibleVersion, visibleVersionTime, oldestTimeToKeep, maxPoints);
+            versionHistory = history;
+        }
+        history.record(version, versionTime, oldestTimeToKeep, maxPoints);
+    }
+
+    public VersionHistory getVersionHistory() {
+        return versionHistory;
+    }
+
+    public void clearVersionHistory() {
+        versionHistory = null;
     }
 
     public void setVisibleVersion(long visibleVersion, long visibleVersionTime) {

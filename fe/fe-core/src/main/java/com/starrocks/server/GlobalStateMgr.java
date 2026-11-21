@@ -250,6 +250,7 @@ import com.starrocks.thrift.TRefreshTableRequest;
 import com.starrocks.thrift.TRefreshTableResponse;
 import com.starrocks.thrift.TStatus;
 import com.starrocks.thrift.TStatusCode;
+import com.starrocks.timetravel.TimeTravelBeConfigSyncer;
 import com.starrocks.transaction.GlobalTransactionMgr;
 import com.starrocks.transaction.GtidGenerator;
 import com.starrocks.transaction.PublishVersionDaemon;
@@ -335,6 +336,7 @@ public class GlobalStateMgr {
     private final ConsistencyChecker consistencyChecker;
     private BackupHandler backupHandler;
     private final PublishVersionDaemon publishVersionDaemon;
+    private final TimeTravelBeConfigSyncer timeTravelBeConfigSyncer;
     private final DeleteMgr deleteMgr;
     private final DatabaseQuotaRefresher updateDbUsedDataQuotaDaemon;
 
@@ -749,6 +751,7 @@ public class GlobalStateMgr {
         this.lock = new QueryableReentrantLock(true);
         this.backupHandler = new BackupHandler(this);
         this.publishVersionDaemon = new PublishVersionDaemon();
+        this.timeTravelBeConfigSyncer = new TimeTravelBeConfigSyncer();
         this.deleteMgr = new DeleteMgr();
         this.updateDbUsedDataQuotaDaemon = new DatabaseQuotaRefresher();
         this.statisticsMetaManager = new StatisticsMetaManager();
@@ -1735,6 +1738,8 @@ public class GlobalStateMgr {
         }
         // Publish Version Daemon
         publishVersionDaemon.start();
+        // Keeps the BE versions time travel reads
+        timeTravelBeConfigSyncer.start();
         // Start txn timeout checker
         txnTimeoutChecker.start();
         // Alter

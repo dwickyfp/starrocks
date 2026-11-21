@@ -76,7 +76,7 @@ public class ShortCircuitPlanner {
     }
 
     public static boolean checkSupportShortCircuitRead(OptExpression root, ConnectContext connectContext) {
-        if (!connectContext.getSessionVariable().isEnableShortCircuit()) {
+        if (!connectContext.getSessionVariable().isEnableShortCircuit() || connectContext.hasTimeTravel()) {
             return false;
         }
         if (containsAIFunction(root)) {

@@ -111,6 +111,7 @@ import org.xnio.StreamConnection;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -349,6 +350,73 @@ public class ConnectContext {
 
     public Map<Long, Long> getScanVersionOverride() {
         return scanVersionOverride;
+    }
+
+    // Per-physical-partition versions that time travel (AT / BEFORE / FOR TIMESTAMP AS OF) pins for the statement
+    // being planned; set by the analyzer and read by OlapScanNode. Cleared when the outermost planning scope ends.
+    private Map<Long, Long> timeTravelScanVersions = null;
+    // tables the statement reads with time travel, and native tables it reads as they are now
+    private Set<Long> timeTravelTableIds = null;
+    private Set<Long> currentReadTableIds = null;
+    private int timeTravelScopeDepth = 0;
+
+    public Map<Long, Long> getTimeTravelScanVersions() {
+        return timeTravelScanVersions;
+    }
+
+    public boolean hasTimeTravel() {
+        return timeTravelScanVersions != null && !timeTravelScanVersions.isEmpty();
+    }
+
+    /** Pins the versions of one table's partitions; a statement reads each table at one point in time only. */
+    public void addTimeTravelScanVersions(long tableId, String tableName, Map<Long, Long> versions) {
+        if (currentReadTableIds != null && currentReadTableIds.contains(tableId)) {
+            throw new SemanticException("Table %s is read both now and with time travel in one statement", tableName);
+        }
+        if (timeTravelTableIds == null) {
+            timeTravelTableIds = new HashSet<>();
+        }
+        timeTravelTableIds.add(tableId);
+        if (timeTravelScanVersions == null) {
+            timeTravelScanVersions = new HashMap<>();
+        }
+        for (Map.Entry<Long, Long> entry : versions.entrySet()) {
+            Long previous = timeTravelScanVersions.putIfAbsent(entry.getKey(), entry.getValue());
+            if (previous != null && !previous.equals(entry.getValue())) {
+                throw new SemanticException(
+                        "Table %s is read at two different points in time in one statement", tableName);
+            }
+        }
+    }
+
+    /** Notes that the statement reads a native table as it is now, which it then cannot also read with time travel. */
+    public void addCurrentReadTable(long tableId, String tableName) {
+        if (timeTravelTableIds != null && timeTravelTableIds.contains(tableId)) {
+            throw new SemanticException("Table %s is read both now and with time travel in one statement", tableName);
+        }
+        if (currentReadTableIds == null) {
+            currentReadTableIds = new HashSet<>();
+        }
+        currentReadTableIds.add(tableId);
+    }
+
+    /** Opens a planning scope; the outermost one starts and ends with no time travel versions pinned. */
+    public void enterTimeTravelScope() {
+        if (timeTravelScopeDepth++ == 0) {
+            clearTimeTravel();
+        }
+    }
+
+    public void exitTimeTravelScope() {
+        if (timeTravelScopeDepth > 0 && --timeTravelScopeDepth == 0) {
+            clearTimeTravel();
+        }
+    }
+
+    private void clearTimeTravel() {
+        timeTravelScanVersions = null;
+        timeTravelTableIds = null;
+        currentReadTableIds = null;
     }
 
     // Start task run id of the incremental MV refresh whose staged TVR window this connection's insert commits;

@@ -93,6 +93,7 @@ import com.starrocks.sql.plan.RangeScanExecutionValidator;
 import com.starrocks.sql.spm.SPMPlanner;
 import com.starrocks.thrift.TAuthenticateParams;
 import com.starrocks.thrift.TResultSinkType;
+import com.starrocks.timetravel.TimeTravelScope;
 import com.starrocks.transaction.BeginTransactionException;
 import com.starrocks.transaction.ExplicitTxnStatementValidator;
 import com.starrocks.transaction.GlobalTransactionMgr;
@@ -143,7 +144,8 @@ public class StatementPlanner {
         PlannerMetaLocker plannerMetaLocker = null;
         // 1. For all queries, we need db lock when analyze phase
         try (var guard = session.bindScope();
-                var ignoredBudget = StatisticsLoadBudget.openScope(session)) {
+                var ignoredBudget = StatisticsLoadBudget.openScope(session);
+                var ignoredTimeTravel = TimeTravelScope.open(session)) {
             SPMPlanner spmPlanner = new SPMPlanner(session);
             stmt = spmPlanner.plan(stmt);
 
