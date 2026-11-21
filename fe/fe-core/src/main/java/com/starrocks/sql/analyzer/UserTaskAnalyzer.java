@@ -40,6 +40,14 @@ public class UserTaskAnalyzer {
         Task scratch = new Task(stmt.getTaskName().getName());
         scratch.setSource(Constants.TaskSource.USER_SQL);
         UserTaskSpec.applyOptions(scratch, stmt.getOptions());
+        stmt.getPredecessors().forEach(UserTaskAnalyzer::checkTaskName);
+        if (stmt.getCondition() != null) {
+            if (stmt.getPredecessors().isEmpty()) {
+                throw new SemanticException("WHEN needs AFTER: only a child task can have a condition on its "
+                        + "predecessors");
+            }
+            UserTaskSpec.PredecessorsState.parse(stmt.getCondition());
+        }
         UserTaskSpec.parseBody(stmt.getBody(), context.getSessionVariable());
     }
 
@@ -58,6 +66,15 @@ public class UserTaskAnalyzer {
                 break;
             case MODIFY_AS:
                 UserTaskSpec.parseBody(stmt.getBody(), context.getSessionVariable());
+                break;
+            case ADD_AFTER:
+            case REMOVE_AFTER:
+                stmt.getPredecessors().forEach(UserTaskAnalyzer::checkTaskName);
+                break;
+            case MODIFY_WHEN:
+                UserTaskSpec.PredecessorsState.parse(stmt.getCondition());
+                break;
+            case REMOVE_WHEN:
                 break;
             default:
                 throw new SemanticException("Unsupported alter task action: " + stmt.getAction());

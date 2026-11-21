@@ -68,6 +68,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -100,6 +101,8 @@ public class TaskManager implements MemoryTrackable {
     // include PENDING/RUNNING taskRun;
     private final TaskRunManager taskRunManager;
     private final TaskRunScheduler taskRunScheduler = new TaskRunScheduler();
+    // runs the task graphs of Snowflake style tasks (CREATE TASK ... AFTER)
+    private final UserTaskGraphRunner userTaskGraphRunner = new UserTaskGraphRunner(this);
 
     // The periodScheduler is used to generate the corresponding TaskRun on time for the Periodical Task.
     // This scheduler can use the time wheel to optimize later.
@@ -394,6 +397,10 @@ public class TaskManager implements MemoryTrackable {
         try {
             if (nameToTaskMap.containsKey(task.getName())) {
                 throw new DdlException("Task [" + task.getName() + "] already exists");
+            }
+            if (task.isUserSqlTask()) {
+                UserTaskGraph.validate(task, nameToTaskMap::get, nameToTaskMap.values());
+                checkGraphRootSuspended(task, task);
             }
 
             // TaskId should be assigned by the framework
@@ -1052,12 +1059,99 @@ public class TaskManager implements MemoryTrackable {
                 throw new DdlException("Task [" + currentTask.getName() + "] must be suspended before it is changed, "
                         + "use ALTER TASK " + currentTask.getName() + " SUSPEND");
             }
+            UserTaskGraph.validate(changedTask, nameToTaskMap::get, nameToTaskMap.values());
+            checkGraphRootSuspended(currentTask, currentTask);
+            checkGraphRootSuspended(changedTask, currentTask);
             GlobalStateMgr.getCurrentState().getEditLog().logAlterTask(
                     AlterTaskInfo.ofReplacedTask(currentTask.getName(), changedTask),
                     wal -> currentTask.applyUserTaskDefinition(((AlterTaskInfo) wal).getReplacedTask()));
         } finally {
             taskUnlock();
         }
+    }
+
+    /**
+     * Throws if the task is a child or finalizer task whose task graph root is not suspended: as in Snowflake, the
+     * root must be suspended to change, suspend or resume the other tasks of its graph.
+     */
+    public void checkUserTaskGraphRootSuspended(Task task) throws DdlException {
+        takeTaskLock();
+        try {
+            checkGraphRootSuspended(task, task);
+        } finally {
+            taskUnlock();
+        }
+    }
+
+    // `task` is the definition to look at, `self` the task being changed, which is not its own root
+    private void checkGraphRootSuspended(Task task, Task self) throws DdlException {
+        if (!task.isUserSqlTask() || !UserTaskGraph.isChildOrFinalizer(task)) {
+            return;
+        }
+        Task root = UserTaskGraph.rootOf(task, nameToTaskMap::get);
+        if (root != null && !root.getName().equals(self.getName()) && root.getState() == Constants.TaskState.ACTIVE) {
+            throw new DdlException("Root task [" + root.getName() + "] of the task graph of [" + self.getName()
+                    + "] must be suspended first, use ALTER TASK " + root.getName() + " SUSPEND");
+        }
+    }
+
+    /**
+     * Before a Snowflake style task is dropped, removes it from the AFTER of the tasks that run after it and from
+     * the FINALIZE of its finalizer. A task left with no predecessors becomes a standalone or root task, and is
+     * suspended, as in Snowflake.
+     * NOTE: this method will write edit log.
+     */
+    public void detachUserTaskFromGraph(Task dropped) {
+        if (!dropped.isUserSqlTask()) {
+            return;
+        }
+        List<Task> dependents = new ArrayList<>();
+        takeTaskLock();
+        try {
+            for (Task task : nameToTaskMap.values()) {
+                if (task != dropped && task.isUserSqlTask()
+                        && (UserTaskSpec.getPredecessors(task).contains(dropped.getName())
+                        || dropped.getName().equals(UserTaskSpec.getFinalizeRoot(task)))) {
+                    dependents.add(task);
+                }
+            }
+        } finally {
+            taskUnlock();
+        }
+        for (Task task : dependents) {
+            Task changed = new Task(task.getName());
+            changed.setSource(Constants.TaskSource.USER_SQL);
+            changed.applyUserTaskDefinition(task);
+            List<String> predecessors = new ArrayList<>(UserTaskSpec.getPredecessors(changed));
+            predecessors.remove(dropped.getName());
+            UserTaskSpec.setPredecessors(changed, predecessors);
+            if (predecessors.isEmpty()) {
+                UserTaskSpec.setCondition(changed, null);
+            }
+            if (dropped.getName().equals(UserTaskSpec.getFinalizeRoot(changed))) {
+                UserTaskSpec.unsetOptions(changed, List.of(UserTaskSpec.FINALIZE));
+            }
+            if (!UserTaskGraph.isChildOrFinalizer(changed) && task.getState() == Constants.TaskState.ACTIVE) {
+                suspendTask(task, false);
+            }
+            LOG.info("detach task {} from dropped task {}", task.getName(), dropped.getName());
+            GlobalStateMgr.getCurrentState().getEditLog().logAlterTask(
+                    AlterTaskInfo.ofReplacedTask(task.getName(), changed),
+                    wal -> task.applyUserTaskDefinition(((AlterTaskInfo) wal).getReplacedTask()));
+        }
+    }
+
+    public UserTaskGraphRunner getUserTaskGraphRunner() {
+        return userTaskGraphRunner;
+    }
+
+    // As Snowflake's default NO_OVERLAP: a root task does not run on its schedule while its task graph still runs.
+    private boolean skipWhileGraphRuns(Task task) {
+        if (task.isUserSqlTask() && userTaskGraphRunner.isGraphRunning(task.getName())) {
+            LOG.info("skip the scheduled run of task {}: its task graph is still running", task.getName());
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1093,7 +1187,7 @@ public class TaskManager implements MemoryTrackable {
         if (task.getState() != Constants.TaskState.ACTIVE || idToTaskMap.get(task.getId()) != task) {
             return;
         }
-        if (GlobalStateMgr.getCurrentState().isLeader()) {
+        if (GlobalStateMgr.getCurrentState().isLeader() && !skipWhileGraphRuns(task)) {
             try {
                 task.setLastScheduleTime(TimeUtils.getEpochSeconds());
                 ExecuteOption option = new ExecuteOption(Constants.TaskRunPriority.LOWEST.value(), true,
@@ -1160,8 +1254,11 @@ public class TaskManager implements MemoryTrackable {
             }
             // ensure an execute task will not throw exception
             try {
-                task.setLastScheduleTime(TimeUtils.getEpochSeconds());
                 task.setNextScheduleTime(TimeUtils.getEpochSeconds() + periodSeconds);
+                if (skipWhileGraphRuns(task)) {
+                    return;
+                }
+                task.setLastScheduleTime(TimeUtils.getEpochSeconds());
                 ExecuteOption option = new ExecuteOption(Constants.TaskRunPriority.LOWEST.value(), true,
                         task.getProperties());
                 executeTask(task.getName(), option);

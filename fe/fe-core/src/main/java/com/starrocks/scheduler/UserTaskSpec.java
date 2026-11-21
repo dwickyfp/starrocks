@@ -30,6 +30,7 @@ import org.quartz.CronExpression;
 import java.text.ParseException;
 import java.time.DateTimeException;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -39,6 +40,7 @@ import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Options and body of a Snowflake style task (source {@link Constants.TaskSource#USER_SQL}).
@@ -53,6 +55,12 @@ public final class UserTaskSpec {
     public static final String COMMENT = "COMMENT";
     public static final String USER_TASK_TIMEOUT_MS = "USER_TASK_TIMEOUT_MS";
     public static final String SUSPEND_TASK_AFTER_NUM_FAILURES = "SUSPEND_TASK_AFTER_NUM_FAILURES";
+    // FINALIZE = <root task>: the task runs once after every run of that root's task graph.
+    public static final String FINALIZE = "FINALIZE";
+    // Kept with the options, but set only by the AFTER and WHEN clauses: the predecessor task names, comma
+    // separated, and the SYSTEM$PREDECESSORS_STATE value.
+    public static final String AFTER = "AFTER";
+    public static final String WHEN = "WHEN";
 
     // Snowflake suspends a task after 10 consecutive failed runs by default.
     public static final int DEFAULT_SUSPEND_TASK_AFTER_NUM_FAILURES = 10;
@@ -91,6 +99,17 @@ public final class UserTaskSpec {
                 case COMMENT:
                     taskOptions.put(COMMENT, value);
                     break;
+                case FINALIZE:
+                    if (Strings.isNullOrEmpty(value) || value.trim().isEmpty()) {
+                        throw new SemanticException("FINALIZE must name the root task of a task graph");
+                    }
+                    taskOptions.put(FINALIZE, value.trim());
+                    break;
+                case AFTER:
+                case WHEN:
+                    throw new SemanticException(key + " is a clause, not an option: write " + key
+                            + " after the options, or use ALTER TASK ... "
+                            + (key.equals(AFTER) ? "ADD AFTER" : "MODIFY WHEN"));
                 case USER_TASK_TIMEOUT_MS:
                     taskOptions.put(USER_TASK_TIMEOUT_MS, String.valueOf(parsePositiveLong(key, value)));
                     break;
@@ -135,8 +154,13 @@ public final class UserTaskSpec {
                 case COMMENT:
                 case USER_TASK_TIMEOUT_MS:
                 case SUSPEND_TASK_AFTER_NUM_FAILURES:
+                case FINALIZE:
                     taskOptions.remove(key);
                     break;
+                case AFTER:
+                case WHEN:
+                    throw new SemanticException("Use ALTER TASK ... REMOVE " + key + " to remove the " + key
+                            + " clause");
                 default:
                     String variable = key.toLowerCase(Locale.ROOT);
                     if (properties.remove(variable) == null) {
@@ -147,6 +171,95 @@ public final class UserTaskSpec {
         }
         task.setTaskOptions(taskOptions);
         task.setProperties(properties);
+    }
+
+    /**
+     * The states a task's predecessors can be required to be in, as in Snowflake's SYSTEM$PREDECESSORS_STATE.
+     * A predecessor that was skipped, because its own condition was not met, counts as neither failed nor
+     * succeeded.
+     */
+    public enum PredecessorsState {
+        // every predecessor succeeded (the default)
+        ALL_SUCCEEDED,
+        // at least one predecessor failed
+        AT_LEAST_ONE_FAILED,
+        // every predecessor failed
+        ALL_FAILED,
+        // every predecessor finished, whatever its state
+        ALL_DONE,
+        // no predecessor failed and at least one succeeded
+        NONE_FAILED_MIN_ONE_SUCCEEDED;
+
+        public boolean test(int succeeded, int failed, int skipped) {
+            int total = succeeded + failed + skipped;
+            switch (this) {
+                case ALL_SUCCEEDED:
+                    return total > 0 && succeeded == total;
+                case AT_LEAST_ONE_FAILED:
+                    return failed > 0;
+                case ALL_FAILED:
+                    return total > 0 && failed == total;
+                case ALL_DONE:
+                    return true;
+                case NONE_FAILED_MIN_ONE_SUCCEEDED:
+                    return failed == 0 && succeeded > 0;
+                default:
+                    return false;
+            }
+        }
+
+        public static PredecessorsState parse(String value) {
+            try {
+                return valueOf(value.trim().toUpperCase(Locale.ROOT));
+            } catch (Exception e) {
+                throw new SemanticException("Unknown SYSTEM$PREDECESSORS_STATE value '" + value + "', expected one of "
+                        + Arrays.toString(values()));
+            }
+        }
+    }
+
+    public static List<String> getPredecessors(Task task) {
+        String after = task.getTaskOption(AFTER);
+        if (Strings.isNullOrEmpty(after)) {
+            return List.of();
+        }
+        return List.of(after.split(","));
+    }
+
+    /**
+     * Sets the predecessors, in the order given, without duplicates. An empty list makes the task standalone.
+     */
+    public static void setPredecessors(Task task, List<String> predecessors) {
+        Map<String, String> taskOptions = new HashMap<>(task.getTaskOptions());
+        List<String> names = predecessors.stream().distinct().collect(Collectors.toList());
+        if (names.isEmpty()) {
+            taskOptions.remove(AFTER);
+        } else {
+            taskOptions.put(AFTER, String.join(",", names));
+        }
+        task.setTaskOptions(taskOptions);
+    }
+
+    public static PredecessorsState getCondition(Task task) {
+        String when = task.getTaskOption(WHEN);
+        return when == null ? PredecessorsState.ALL_SUCCEEDED : PredecessorsState.valueOf(when);
+    }
+
+    /**
+     * Sets the WHEN condition; null removes it, which means ALL_SUCCEEDED.
+     */
+    public static void setCondition(Task task, String condition) {
+        Map<String, String> taskOptions = new HashMap<>(task.getTaskOptions());
+        if (condition == null) {
+            taskOptions.remove(WHEN);
+        } else {
+            taskOptions.put(WHEN, PredecessorsState.parse(condition).name());
+        }
+        task.setTaskOptions(taskOptions);
+    }
+
+    public static String getFinalizeRoot(Task task) {
+        return task.getTaskOption(FINALIZE);
     }
 
     /**

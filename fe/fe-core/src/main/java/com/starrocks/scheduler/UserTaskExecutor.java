@@ -39,6 +39,7 @@ import com.starrocks.sql.ast.task.ExecuteTaskStmt;
 import com.starrocks.sql.ast.task.ShowTasksStmt;
 import com.starrocks.type.TypeFactory;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -64,6 +65,9 @@ public final class UserTaskExecutor {
             .addColumn(new Column("LAST_SCHEDULED_ON", TypeFactory.createVarcharType(32)))
             .addColumn(new Column("NEXT_SCHEDULED_ON", TypeFactory.createVarcharType(32)))
             .addColumn(new Column("OPTIONS", TypeFactory.createVarcharType(65535)))
+            .addColumn(new Column("PREDECESSORS", TypeFactory.createVarcharType(65535)))
+            .addColumn(new Column("CONDITION", TypeFactory.createVarcharType(256)))
+            .addColumn(new Column("FINALIZE", TypeFactory.createVarcharType(256)))
             .build();
 
     public static final ShowResultSetMetaData EXECUTE_META_DATA = ShowResultSetMetaData.builder()
@@ -101,6 +105,8 @@ public final class UserTaskExecutor {
                 .getWarehouse(ctx.getCurrentWarehouseId()).getName());
         task.setProperties(properties);
         UserTaskSpec.applyOptions(task, stmt.getOptions());
+        UserTaskSpec.setPredecessors(task, predecessorNames(task, stmt.getPredecessors()));
+        UserTaskSpec.setCondition(task, stmt.getCondition());
         UserTaskSpec.parseBody(task.getDefinition(), ctx.getSessionVariable());
         task.setCreateUser(ctx.getCurrentUserIdentity().getUser());
         task.setUserIdentity(ctx.getCurrentUserIdentity());
@@ -109,6 +115,10 @@ public final class UserTaskExecutor {
             taskManager.createTask(task);
             return;
         }
+        // The replaced task keeps its owner.
+        task.setCreateUser(existing.getCreateUser());
+        task.setUserIdentity(existing.getUserIdentity());
+        taskManager.checkUserTaskGraphRootSuspended(existing);
         // CREATE OR REPLACE keeps the task (and its run history) but leaves it suspended, as Snowflake does.
         if (existing.getState() == Constants.TaskState.ACTIVE) {
             taskManager.suspendTask(existing, false);
@@ -133,6 +143,9 @@ public final class UserTaskExecutor {
         Task changed = new Task(name);
         changed.setSource(Constants.TaskSource.USER_SQL);
         changed.applyUserTaskDefinition(current);
+        changed.setCreateUser(current.getCreateUser());
+        changed.setUserIdentity(current.getUserIdentity());
+        List<String> predecessors = new ArrayList<>(UserTaskSpec.getPredecessors(changed));
         switch (stmt.getAction()) {
             case SET:
                 UserTaskSpec.applyOptions(changed, stmt.getOptions());
@@ -144,6 +157,28 @@ public final class UserTaskExecutor {
                 UserTaskSpec.parseBody(stmt.getBody(), ctx.getSessionVariable());
                 changed.setDefinition(stmt.getBody());
                 break;
+            case ADD_AFTER:
+                predecessors.addAll(predecessorNames(changed, stmt.getPredecessors()));
+                UserTaskSpec.setPredecessors(changed, predecessors);
+                break;
+            case REMOVE_AFTER:
+                for (String predecessor : predecessorNames(changed, stmt.getPredecessors())) {
+                    if (!predecessors.remove(predecessor)) {
+                        throw new DdlException("Task [" + name + "] does not run after [" + predecessor + "]");
+                    }
+                }
+                UserTaskSpec.setPredecessors(changed, predecessors);
+                if (predecessors.isEmpty()) {
+                    // no longer a child task
+                    UserTaskSpec.setCondition(changed, null);
+                }
+                break;
+            case MODIFY_WHEN:
+                UserTaskSpec.setCondition(changed, stmt.getCondition());
+                break;
+            case REMOVE_WHEN:
+                UserTaskSpec.setCondition(changed, null);
+                break;
             default:
                 throw new SemanticException("Unsupported alter task action: " + stmt.getAction());
         }
@@ -153,8 +188,13 @@ public final class UserTaskExecutor {
     public static ShowResultSet executeTask(ExecuteTaskStmt stmt) {
         TaskManager taskManager = GlobalStateMgr.getCurrentState().getTaskManager();
         String name = stmt.getTaskName().getName();
-        if (taskManager.getTask(name) == null) {
+        Task task = taskManager.getTask(name);
+        if (task == null) {
             throw new SemanticException("Task " + name + " is not exist");
+        }
+        if (task.isUserSqlTask() && !UserTaskGraph.isChildOrFinalizer(task)
+                && taskManager.getUserTaskGraphRunner().isGraphRunning(name)) {
+            throw new SemanticException("The task graph of root task " + name + " is still running");
         }
         SubmitResult result = taskManager.executeTask(name);
         List<String> row = Lists.newArrayList(name, Strings.nullToEmpty(result.getQueryId()),
@@ -224,6 +264,9 @@ public final class UserTaskExecutor {
         Map<String, String> options = new HashMap<>(task.getTaskOptions());
         options.remove(UserTaskSpec.COMMENT);
         options.remove(UserTaskSpec.SCHEDULE);
+        options.remove(UserTaskSpec.AFTER);
+        options.remove(UserTaskSpec.WHEN);
+        options.remove(UserTaskSpec.FINALIZE);
         if (task.getProperties() != null) {
             task.getProperties().forEach((key, value) -> {
                 if (!key.equals(PropertyAnalyzer.PROPERTIES_WAREHOUSE)) {
@@ -232,7 +275,27 @@ public final class UserTaskExecutor {
             });
         }
         row.add(options.isEmpty() ? "" : new TreeMap<>(options).toString());
+        row.add(String.join(",", UserTaskSpec.getPredecessors(task)));
+        String condition = task.getTaskOption(UserTaskSpec.WHEN);
+        row.add(condition == null ? "" : "SYSTEM$PREDECESSORS_STATE('" + condition + "')");
+        row.add(Strings.nullToEmpty(UserTaskSpec.getFinalizeRoot(task)));
         return row;
+    }
+
+    /**
+     * The names of the predecessor tasks, which must be in the database of the task.
+     */
+    private static List<String> predecessorNames(Task task, List<TaskName> predecessors) {
+        List<String> names = new ArrayList<>();
+        for (TaskName predecessor : predecessors) {
+            if (!Strings.isNullOrEmpty(predecessor.getDbName())
+                    && !predecessor.getDbName().equalsIgnoreCase(task.getDbName())) {
+                throw new SemanticException("Predecessor task " + predecessor.getDbName() + "." + predecessor.getName()
+                        + " is not in database " + task.getDbName() + ": the tasks of a task graph are in one database");
+            }
+            names.add(predecessor.getName());
+        }
+        return names;
     }
 
     private static String scheduleString(Task task) {

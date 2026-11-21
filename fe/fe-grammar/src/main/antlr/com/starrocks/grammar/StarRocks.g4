@@ -721,13 +721,28 @@ alterTaskStatement
     | ALTER TASK (IF EXISTS)? qualifiedName SET taskOption+
     | ALTER TASK (IF EXISTS)? qualifiedName UNSET identifier (',' identifier)*
     | ALTER TASK (IF EXISTS)? qualifiedName MODIFY AS taskBody
+    | ALTER TASK (IF EXISTS)? qualifiedName (ADD | REMOVE) AFTER taskPredecessorList
+    | ALTER TASK (IF EXISTS)? qualifiedName MODIFY WHEN taskCondition
+    | ALTER TASK (IF EXISTS)? qualifiedName REMOVE WHEN
     ;
 
-// Snowflake style task: CREATE TASK name [option = value ...] AS <statement | $$ script $$>
+// Snowflake style task:
+// CREATE TASK name [option = value ...] [AFTER task [, task ...]] [WHEN condition] AS <statement | $$ script $$>
 createTaskStatement
     : CREATE (OR REPLACE)? TASK (IF NOT EXISTS)? qualifiedName
         taskOption*
+        (AFTER taskPredecessorList)?
+        (WHEN taskCondition)?
         AS taskBody
+    ;
+
+taskPredecessorList
+    : qualifiedName (',' qualifiedName)*
+    ;
+
+// Only SYSTEM$PREDECESSORS_STATE('<state>') is supported.
+taskCondition
+    : functionName=identifier '(' state=string ')'
     ;
 
 taskOption

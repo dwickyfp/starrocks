@@ -1201,6 +1201,7 @@ public class DDLStmtExecutor {
                             "or DROP TASK ... FORCE to delete this task directly.");
                 }
             }
+            taskManager.detachUserTaskFromGraph(task);
             taskManager.dropTasks(Collections.singletonList(task.getId()));
             return null;
         }
@@ -1216,6 +1217,9 @@ public class DDLStmtExecutor {
                 throw new SemanticException("Task " + taskName + " is not exist");
             }
             Task task = taskManager.getTask(taskName);
+            if (alterTaskStmt.getAction() != AlterTaskStmt.AlterAction.SET) {
+                ErrorReport.wrapWithRuntimeException(() -> taskManager.checkUserTaskGraphRootSuspended(task));
+            }
             switch (alterTaskStmt.getAction()) {
                 case RESUME:
                     taskManager.resumeTask(task, false);

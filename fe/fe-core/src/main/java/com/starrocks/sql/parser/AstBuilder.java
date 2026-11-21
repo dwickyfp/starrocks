@@ -2268,6 +2268,17 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         } else if (context.taskBody() != null) {
             return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.MODIFY_AS,
                     null, null, getTaskBody(context.taskBody()), createPos(context));
+        } else if (context.taskPredecessorList() != null) {
+            AlterTaskOptionsStmt.Action action = context.ADD() != null
+                    ? AlterTaskOptionsStmt.Action.ADD_AFTER : AlterTaskOptionsStmt.Action.REMOVE_AFTER;
+            return new AlterTaskOptionsStmt(taskName, ifExists, action, null, null, null,
+                    getTaskPredecessors(context.taskPredecessorList()), null, createPos(context));
+        } else if (context.taskCondition() != null) {
+            return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.MODIFY_WHEN, null, null,
+                    null, null, getTaskCondition(context.taskCondition()), createPos(context));
+        } else if (context.WHEN() != null) {
+            return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.REMOVE_WHEN, null, null,
+                    null, null, null, createPos(context));
         }
 
         AlterTaskStmt.AlterAction action;
@@ -2298,8 +2309,28 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         if (orReplace && ifNotExists) {
             throw new ParsingException("OR REPLACE and IF NOT EXISTS cannot be used together", createPos(context));
         }
+        List<TaskName> predecessors = context.taskPredecessorList() == null ? null :
+                getTaskPredecessors(context.taskPredecessorList());
+        String condition = context.taskCondition() == null ? null : getTaskCondition(context.taskCondition());
         return new CreateTaskStmt(taskName, orReplace, ifNotExists, getTaskOptions(context.taskOption()),
-                getTaskBody(context.taskBody()), createPos(context));
+                predecessors, condition, getTaskBody(context.taskBody()), createPos(context));
+    }
+
+    private List<TaskName> getTaskPredecessors(
+            com.starrocks.sql.parser.StarRocksParser.TaskPredecessorListContext context) {
+        return context.qualifiedName().stream()
+                .map(name -> qualifiedNameToTaskName(getQualifiedName(name)))
+                .collect(toList());
+    }
+
+    // WHEN SYSTEM$PREDECESSORS_STATE('<state>') -> <state> in upper case
+    private String getTaskCondition(com.starrocks.sql.parser.StarRocksParser.TaskConditionContext context) {
+        String function = ((Identifier) visit(context.functionName)).getValue();
+        if (!function.equalsIgnoreCase("SYSTEM$PREDECESSORS_STATE")) {
+            throw new ParsingException("Unsupported task condition " + function
+                    + ", only SYSTEM$PREDECESSORS_STATE('<state>') is supported", createPos(context));
+        }
+        return ((StringLiteral) visit(context.state)).getValue().trim().toUpperCase();
     }
 
     @Override

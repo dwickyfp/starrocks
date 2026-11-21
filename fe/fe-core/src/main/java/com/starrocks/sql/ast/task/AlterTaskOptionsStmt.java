@@ -27,13 +27,19 @@ import java.util.Map;
 
 /**
  * Snowflake style task changes: {@code ALTER TASK name SET option = value ...},
- * {@code ALTER TASK name UNSET option, ...} and {@code ALTER TASK name MODIFY AS body}.
+ * {@code ALTER TASK name UNSET option, ...}, {@code ALTER TASK name MODIFY AS body},
+ * {@code ALTER TASK name ADD | REMOVE AFTER task, ...}, {@code ALTER TASK name MODIFY WHEN condition} and
+ * {@code ALTER TASK name REMOVE WHEN}.
  */
 public class AlterTaskOptionsStmt extends DdlStmt {
     public enum Action {
         SET,
         UNSET,
-        MODIFY_AS
+        MODIFY_AS,
+        ADD_AFTER,
+        REMOVE_AFTER,
+        MODIFY_WHEN,
+        REMOVE_WHEN
     }
 
     private final TaskName taskName;
@@ -42,9 +48,17 @@ public class AlterTaskOptionsStmt extends DdlStmt {
     private final Map<String, String> options;
     private final List<String> unsetOptions;
     private final String body;
+    private final List<TaskName> predecessors;
+    private final String condition;
 
     public AlterTaskOptionsStmt(TaskName taskName, boolean ifExists, Action action, Map<String, String> options,
                                 List<String> unsetOptions, String body, NodePosition pos) {
+        this(taskName, ifExists, action, options, unsetOptions, body, null, null, pos);
+    }
+
+    public AlterTaskOptionsStmt(TaskName taskName, boolean ifExists, Action action, Map<String, String> options,
+                                List<String> unsetOptions, String body, List<TaskName> predecessors,
+                                String condition, NodePosition pos) {
         super(pos);
         this.taskName = taskName;
         this.ifExists = ifExists;
@@ -52,6 +66,8 @@ public class AlterTaskOptionsStmt extends DdlStmt {
         this.options = options == null ? ImmutableMap.of() : ImmutableMap.copyOf(options);
         this.unsetOptions = unsetOptions == null ? ImmutableList.of() : ImmutableList.copyOf(unsetOptions);
         this.body = body;
+        this.predecessors = predecessors == null ? ImmutableList.of() : ImmutableList.copyOf(predecessors);
+        this.condition = condition;
     }
 
     public TaskName getTaskName() {
@@ -76,6 +92,14 @@ public class AlterTaskOptionsStmt extends DdlStmt {
 
     public String getBody() {
         return body;
+    }
+
+    public List<TaskName> getPredecessors() {
+        return predecessors;
+    }
+
+    public String getCondition() {
+        return condition;
     }
 
     @Override

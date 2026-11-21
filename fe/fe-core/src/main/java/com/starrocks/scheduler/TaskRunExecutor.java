@@ -67,6 +67,18 @@ public class TaskRunExecutor {
     /**
      * Async execute a task-run, use the return value to indicate submit success or not
      */
+    // A finished run of a Snowflake style task may start or advance a run of its task graph.
+    private static void notifyTaskGraph(TaskRun taskRun) {
+        if (taskRun.getTask() == null || !taskRun.getTask().isUserSqlTask()) {
+            return;
+        }
+        try {
+            GlobalStateMgr.getCurrentState().getTaskManager().getUserTaskGraphRunner().onTaskRunFinished(taskRun);
+        } catch (Exception e) {
+            LOG.warn("failed to report the finished task run {} to its task graph", taskRun.getStatus(), e);
+        }
+    }
+
     public boolean executeTaskRun(TaskRun taskRun) {
         if (taskRun == null) {
             LOG.warn("TaskRun is null, avoid execute it again");
@@ -125,6 +137,7 @@ public class TaskRunExecutor {
             } else {
                 taskRun.getFuture().completeExceptionally(e);
             }
+            notifyTaskGraph(taskRun);
         });
         return true;
     }

@@ -14,6 +14,7 @@
 
 package com.starrocks.sql.ast.task;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.starrocks.sql.ast.AstVisitor;
 import com.starrocks.sql.ast.AstVisitorExtendInterface;
@@ -21,10 +22,12 @@ import com.starrocks.sql.ast.DdlStmt;
 import com.starrocks.sql.ast.TaskName;
 import com.starrocks.sql.parser.NodePosition;
 
+import java.util.List;
 import java.util.Map;
 
 /**
- * Snowflake style task: {@code CREATE [OR REPLACE] TASK [IF NOT EXISTS] name [option = value ...] AS body}.
+ * Snowflake style task: {@code CREATE [OR REPLACE] TASK [IF NOT EXISTS] name [option = value ...]
+ * [AFTER task [, task ...]] [WHEN SYSTEM$PREDECESSORS_STATE('state')] AS body}.
  * The body is kept as SQL text: one statement, or a script of statements separated by ';'.
  */
 public class CreateTaskStmt extends DdlStmt {
@@ -33,15 +36,21 @@ public class CreateTaskStmt extends DdlStmt {
     private final boolean ifNotExists;
     // option name (upper case) -> value, in the order written
     private final Map<String, String> options;
+    // the tasks this task runs after, empty for a standalone or root task
+    private final List<TaskName> predecessors;
+    // the SYSTEM$PREDECESSORS_STATE value of the WHEN clause, or null
+    private final String condition;
     private final String body;
 
     public CreateTaskStmt(TaskName taskName, boolean orReplace, boolean ifNotExists, Map<String, String> options,
-                          String body, NodePosition pos) {
+                          List<TaskName> predecessors, String condition, String body, NodePosition pos) {
         super(pos);
         this.taskName = taskName;
         this.orReplace = orReplace;
         this.ifNotExists = ifNotExists;
         this.options = ImmutableMap.copyOf(options);
+        this.predecessors = predecessors == null ? ImmutableList.of() : ImmutableList.copyOf(predecessors);
+        this.condition = condition;
         this.body = body;
     }
 
@@ -59,6 +68,14 @@ public class CreateTaskStmt extends DdlStmt {
 
     public Map<String, String> getOptions() {
         return options;
+    }
+
+    public List<TaskName> getPredecessors() {
+        return predecessors;
+    }
+
+    public String getCondition() {
+        return condition;
     }
 
     public String getBody() {
