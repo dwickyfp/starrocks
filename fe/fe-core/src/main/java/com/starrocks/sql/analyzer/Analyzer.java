@@ -173,6 +173,8 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
+import com.starrocks.sql.ast.task.CreateTaskStmt;
 import com.starrocks.sql.ast.translate.TranslateStmt;
 import com.starrocks.sql.ast.txn.BeginStmt;
 import com.starrocks.sql.ast.txn.CommitStmt;
@@ -1195,6 +1197,18 @@ public class Analyzer {
         @Override
         public Void visitShowPipeStatement(ShowPipeStmt stmt, ConnectContext context) {
             PipeAnalyzer.analyze(stmt, context);
+            return null;
+        }
+
+        @Override
+        public Void visitCreateTaskStatement(CreateTaskStmt stmt, ConnectContext context) {
+            UserTaskAnalyzer.analyze(stmt, context);
+            return null;
+        }
+
+        @Override
+        public Void visitAlterTaskOptionsStatement(AlterTaskOptionsStmt stmt, ConnectContext context) {
+            UserTaskAnalyzer.analyze(stmt, context);
             return null;
         }
 

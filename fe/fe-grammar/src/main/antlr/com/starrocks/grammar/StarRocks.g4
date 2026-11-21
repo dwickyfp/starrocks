@@ -80,8 +80,12 @@ statement
 
     // Task Statement
     | submitTaskStatement
+    | createTaskStatement
     | alterTaskStatement
     | dropTaskStatement
+    | executeTaskStatement
+    | showTasksStatement
+    | descTaskStatement
 
     // Materialized View Statement
     | createMaterializedViewStatement
@@ -714,6 +718,44 @@ submitTaskStatement
 
 alterTaskStatement
     : ALTER TASK (IF EXISTS)? qualifiedName (RESUME | SUSPEND | SET propertyList)
+    | ALTER TASK (IF EXISTS)? qualifiedName SET taskOption+
+    | ALTER TASK (IF EXISTS)? qualifiedName UNSET identifier (',' identifier)*
+    | ALTER TASK (IF EXISTS)? qualifiedName MODIFY AS taskBody
+    ;
+
+// Snowflake style task: CREATE TASK name [option = value ...] AS <statement | $$ script $$>
+createTaskStatement
+    : CREATE (OR REPLACE)? TASK (IF NOT EXISTS)? qualifiedName
+        taskOption*
+        AS taskBody
+    ;
+
+taskOption
+    : key=identifier EQ value=taskOptionValue
+    ;
+
+taskOptionValue
+    : string
+    | number
+    | booleanValue
+    | identifier
+    ;
+
+taskBody
+    : ATTACHMENT
+    | statement
+    ;
+
+executeTaskStatement
+    : EXECUTE TASK qualifiedName
+    ;
+
+showTasksStatement
+    : SHOW TASKS ((FROM | IN) db=qualifiedName)? (LIKE pattern=string)?
+    ;
+
+descTaskStatement
+    : (DESC | DESCRIBE) TASK qualifiedName
     ;
 
 taskClause
@@ -3434,7 +3476,7 @@ nonReserved
     | SAMPLE | SCHEDULE | SCHEDULER | SECOND | SECURITY | SEPARATOR | SERIALIZABLE |SEMI | SESSION | SETS | SIGNED | SNAPSHOT | SNAPSHOTS | SPLIT | SQL | SQLBLACKLIST | START | STARROCKS
     | STREAM | SUM | STATUS | STOP | SKIP_KW | SKIP_HEADER | SWAP
     | STORAGE| STRING | STRING_AGG | STRUCT | STATS | SUBMIT | SUSPEND | SYNC | SYSTEM | SYSTEM_TIME
-    | TABLES | TABLET | TABLETS | TAG | TASK | TEMPORARY | TIMESTAMP | TIMESTAMPADD | TIMESTAMPDIFF | THAN | TIME | TIMES | TRANSACTION | TRANSFER | TRACE | TRANSLATE
+    | TABLES | TABLET | TABLETS | TAG | TASK | TASKS | TEMPORARY | TIMESTAMP | TIMESTAMPADD | TIMESTAMPDIFF | THAN | TIME | TIMES | TRANSACTION | TRANSFER | TRACE | TRANSLATE
     | TRIM_SPACE | TRAILING | TRIM
     | TRIGGERS | TRUNCATE | TYPE | TYPES
     | UNBOUNDED | UNCOMMITTED | UNSET | UNINSTALL | USAGE | USER | USERS | UNLOCK

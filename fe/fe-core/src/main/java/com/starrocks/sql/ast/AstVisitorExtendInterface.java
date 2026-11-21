@@ -51,6 +51,11 @@ import com.starrocks.sql.ast.pipe.ShowPipeStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
+import com.starrocks.sql.ast.task.CreateTaskStmt;
+import com.starrocks.sql.ast.task.DescTaskStmt;
+import com.starrocks.sql.ast.task.ExecuteTaskStmt;
+import com.starrocks.sql.ast.task.ShowTasksStmt;
 
 public interface AstVisitorExtendInterface<R, C> extends AstVisitor<R, C> {
 
@@ -470,6 +475,28 @@ public interface AstVisitorExtendInterface<R, C> extends AstVisitor<R, C> {
     }
 
     default R visitDescPipeStatement(DescPipeStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    // ---------------------------------------- Snowflake style Task Statement ---------------------------------------
+
+    default R visitCreateTaskStatement(CreateTaskStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitAlterTaskOptionsStatement(AlterTaskOptionsStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitExecuteTaskStatement(ExecuteTaskStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitShowTasksStatement(ShowTasksStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    default R visitDescTaskStatement(DescTaskStmt statement, C context) {
         return visitShowStatement(statement, context);
     }
 

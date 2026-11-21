@@ -146,6 +146,7 @@ import com.starrocks.rpc.PListFailPointRequest;
 import com.starrocks.rpc.RpcException;
 import com.starrocks.rpc.ThriftConnectionPool;
 import com.starrocks.rpc.ThriftRPCRequestExecutor;
+import com.starrocks.scheduler.UserTaskExecutor;
 import com.starrocks.server.CatalogMgr;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.MetadataMgr;
@@ -264,6 +265,8 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.task.DescTaskStmt;
+import com.starrocks.sql.ast.task.ShowTasksStmt;
 import com.starrocks.sql.ast.warehouse.ShowNodesStmt;
 import com.starrocks.sql.ast.warehouse.ShowWarehousesStmt;
 import com.starrocks.sql.common.MetaUtils;
@@ -3481,6 +3484,16 @@ public class ShowExecutor {
                             .collect(Collectors.toList()))
                     .collect(Collectors.toList());
             return new ShowResultSet(showResultMetaFactory.getMetadata(statement), result);
+        }
+
+        @Override
+        public ShowResultSet visitShowTasksStatement(ShowTasksStmt statement, ConnectContext context) {
+            return UserTaskExecutor.showTasks(statement, context);
+        }
+
+        @Override
+        public ShowResultSet visitDescTaskStatement(DescTaskStmt statement, ConnectContext context) {
+            return UserTaskExecutor.descTask(statement, context);
         }
 
         @Override

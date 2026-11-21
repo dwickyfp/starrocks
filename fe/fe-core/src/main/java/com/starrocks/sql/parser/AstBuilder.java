@@ -533,6 +533,11 @@ import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
+import com.starrocks.sql.ast.task.CreateTaskStmt;
+import com.starrocks.sql.ast.task.DescTaskStmt;
+import com.starrocks.sql.ast.task.ExecuteTaskStmt;
+import com.starrocks.sql.ast.task.ShowTasksStmt;
 import com.starrocks.sql.ast.translate.TranslateStmt;
 import com.starrocks.sql.ast.txn.BeginStmt;
 import com.starrocks.sql.ast.txn.CommitStmt;
@@ -586,6 +591,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -2250,6 +2256,20 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         TaskName taskName = qualifiedNameToTaskName(qualifiedName);
         boolean ifExists = context.IF() != null;
 
+        if (!context.taskOption().isEmpty()) {
+            return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.SET,
+                    getTaskOptions(context.taskOption()), null, null, createPos(context));
+        } else if (context.UNSET() != null) {
+            List<String> unsetOptions = context.identifier().stream()
+                    .map(id -> ((Identifier) visit(id)).getValue().toUpperCase())
+                    .collect(toList());
+            return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.UNSET,
+                    null, unsetOptions, null, createPos(context));
+        } else if (context.taskBody() != null) {
+            return new AlterTaskOptionsStmt(taskName, ifExists, AlterTaskOptionsStmt.Action.MODIFY_AS,
+                    null, null, getTaskBody(context.taskBody()), createPos(context));
+        }
+
         AlterTaskStmt.AlterAction action;
         Map<String, String> properties = null;
         if (context.RESUME() != null) {
@@ -2267,6 +2287,81 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             properties = getProperties(propertyContextList, true);
         }
         return new AlterTaskStmt(taskName, ifExists, action, properties, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitCreateTaskStatement(
+            com.starrocks.sql.parser.StarRocksParser.CreateTaskStatementContext context) {
+        TaskName taskName = qualifiedNameToTaskName(getQualifiedName(context.qualifiedName()));
+        boolean orReplace = context.REPLACE() != null;
+        boolean ifNotExists = context.IF() != null;
+        if (orReplace && ifNotExists) {
+            throw new ParsingException("OR REPLACE and IF NOT EXISTS cannot be used together", createPos(context));
+        }
+        return new CreateTaskStmt(taskName, orReplace, ifNotExists, getTaskOptions(context.taskOption()),
+                getTaskBody(context.taskBody()), createPos(context));
+    }
+
+    @Override
+    public ParseNode visitExecuteTaskStatement(
+            com.starrocks.sql.parser.StarRocksParser.ExecuteTaskStatementContext context) {
+        TaskName taskName = qualifiedNameToTaskName(getQualifiedName(context.qualifiedName()));
+        return new ExecuteTaskStmt(taskName, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitShowTasksStatement(com.starrocks.sql.parser.StarRocksParser.ShowTasksStatementContext context) {
+        String dbName = null;
+        if (context.db != null) {
+            dbName = normalizeName(getQualifiedName(context.db).toString());
+        }
+        String pattern = null;
+        if (context.pattern != null) {
+            pattern = ((StringLiteral) visit(context.pattern)).getValue();
+        }
+        return new ShowTasksStmt(dbName, pattern, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitDescTaskStatement(com.starrocks.sql.parser.StarRocksParser.DescTaskStatementContext context) {
+        TaskName taskName = qualifiedNameToTaskName(getQualifiedName(context.qualifiedName()));
+        return new DescTaskStmt(taskName, createPos(context));
+    }
+
+    /**
+     * Task options are written Snowflake style as {@code KEY = value}. Keys are case-insensitive and kept upper case;
+     * string values lose their quotes, other values keep their text.
+     */
+    private Map<String, String> getTaskOptions(List<com.starrocks.sql.parser.StarRocksParser.TaskOptionContext> options) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (com.starrocks.sql.parser.StarRocksParser.TaskOptionContext option : options) {
+            String key = ((Identifier) visit(option.key)).getValue().toUpperCase();
+            com.starrocks.sql.parser.StarRocksParser.TaskOptionValueContext valueContext = option.value;
+            String value;
+            if (valueContext.string() != null) {
+                value = ((StringLiteral) visit(valueContext.string())).getValue();
+            } else if (valueContext.identifier() != null) {
+                value = ((Identifier) visit(valueContext.identifier())).getValue();
+            } else {
+                value = valueContext.getText();
+            }
+            if (result.put(key, value) != null) {
+                throw new ParsingException("Task option " + key + " is specified more than once", createPos(option));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * The task body is kept as SQL text: a dollar-quoted script {@code $$ ... $$} without its quotes, or the text of
+     * the single statement as written.
+     */
+    private String getTaskBody(com.starrocks.sql.parser.StarRocksParser.TaskBodyContext context) {
+        if (context.ATTACHMENT() != null) {
+            String content = context.ATTACHMENT().getText();
+            return content.substring(2, content.length() - 2).trim();
+        }
+        return extractRawText(context.statement());
     }
 
     @Override

@@ -27,6 +27,7 @@ import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.WarehouseManager;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -88,6 +89,11 @@ public class Task implements Writable, GsonPostProcessable {
     // the next time this task is to be scheduled, unit: second
     @SerializedName("nextScheduleTime")
     private long nextScheduleTime = -1;
+
+    // Options of a Snowflake style task (source USER_SQL) that are not session variables, such as COMMENT,
+    // SCHEDULE, USER_TASK_TIMEOUT_MS and SUSPEND_TASK_AFTER_NUM_FAILURES. Keys are upper case.
+    @SerializedName("taskOptions")
+    private Map<String, String> taskOptions;
 
     // consecutive failure count, used to mark a task as PAUSE when it exceeds the threshold
     private volatile AtomicInteger consecutiveFailCount = new AtomicInteger();
@@ -235,6 +241,36 @@ public class Task implements Writable, GsonPostProcessable {
 
     public void setUserIdentity(UserIdentity userIdentity) {
         this.userIdentity = userIdentity;
+    }
+
+    public Map<String, String> getTaskOptions() {
+        return taskOptions == null ? Map.of() : taskOptions;
+    }
+
+    public void setTaskOptions(Map<String, String> taskOptions) {
+        this.taskOptions = taskOptions;
+    }
+
+    public String getTaskOption(String key) {
+        return taskOptions == null ? null : taskOptions.get(key);
+    }
+
+    public boolean isUserSqlTask() {
+        return source == Constants.TaskSource.USER_SQL;
+    }
+
+    /**
+     * Copies what a Snowflake style CREATE OR REPLACE / ALTER TASK can change. The id, name, owner, state and
+     * run history stay with this task.
+     */
+    public void applyUserTaskDefinition(Task other) {
+        this.definition = other.definition;
+        this.type = other.type;
+        this.schedule = other.schedule;
+        this.catalogName = other.catalogName;
+        this.dbName = other.dbName;
+        this.properties = other.properties == null ? null : new HashMap<>(other.properties);
+        this.taskOptions = other.taskOptions == null ? null : new HashMap<>(other.taskOptions);
     }
 
     public String getPostRun() {

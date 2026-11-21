@@ -54,6 +54,8 @@ public class TaskRunBuilder {
             taskRun.setProcessor(new MVTaskRunProcessor());
         } else if (task.getSource().equals(Constants.TaskSource.DATACACHE_SELECT)) {
             taskRun.setProcessor(new DataCacheSelectProcessor());
+        } else if (task.getSource().equals(Constants.TaskSource.USER_SQL)) {
+            taskRun.setProcessor(new ScriptTaskRunProcessor());
         } else {
             taskRun.setProcessor(new SqlTaskRunProcessor());
         }

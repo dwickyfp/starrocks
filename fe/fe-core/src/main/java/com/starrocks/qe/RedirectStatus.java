@@ -268,6 +268,11 @@ import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
+import com.starrocks.sql.ast.task.CreateTaskStmt;
+import com.starrocks.sql.ast.task.DescTaskStmt;
+import com.starrocks.sql.ast.task.ExecuteTaskStmt;
+import com.starrocks.sql.ast.task.ShowTasksStmt;
 import com.starrocks.sql.ast.translate.TranslateStmt;
 import com.starrocks.sql.ast.txn.BeginStmt;
 import com.starrocks.sql.ast.txn.CommitStmt;
@@ -1595,6 +1600,32 @@ public class RedirectStatus {
 
         @Override
         public RedirectStatus visitShowPipeStatement(ShowPipeStmt statement, Void context) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        }
+
+        @Override
+        public RedirectStatus visitCreateTaskStatement(CreateTaskStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitAlterTaskOptionsStatement(AlterTaskOptionsStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitExecuteTaskStatement(ExecuteTaskStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitShowTasksStatement(ShowTasksStmt statement, Void context) {
+            // Next schedule times are kept by the leader, which runs the tasks.
+            return RedirectStatus.FORWARD_NO_SYNC;
+        }
+
+        @Override
+        public RedirectStatus visitDescTaskStatement(DescTaskStmt statement, Void context) {
             return RedirectStatus.FORWARD_NO_SYNC;
         }
 

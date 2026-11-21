@@ -401,14 +401,17 @@ public class TaskManager implements MemoryTrackable {
             task.setId(GlobalStateMgr.getCurrentState().getNextId());
 
             if (task.getType() == Constants.TaskType.PERIODICAL) {
-                task.setState(Constants.TaskState.ACTIVE);
+                // A Snowflake style task is created suspended and starts with ALTER TASK ... RESUME.
+                if (!task.isUserSqlTask()) {
+                    task.setState(Constants.TaskState.ACTIVE);
+                }
                 TaskSchedule schedule = task.getSchedule();
                 if (schedule == null) {
                     throw new DdlException("Task [" + task.getName() + "] has no scheduling information");
                 }
             }
             GlobalStateMgr.getCurrentState().getEditLog().logCreateTask(task, wal -> addTask((Task) wal));
-            if (task.getType() == Constants.TaskType.PERIODICAL) {
+            if (task.getType() == Constants.TaskType.PERIODICAL && task.getState() == Constants.TaskState.ACTIVE) {
                 registerScheduler(task);
             }
         } finally {
@@ -998,6 +1001,10 @@ public class TaskManager implements MemoryTrackable {
         if (alterTaskInfo.getState() != null) {
             currentTask.setState(alterTaskInfo.getState());
         }
+        // Handle CREATE OR REPLACE / ALTER TASK of a Snowflake style task
+        if (alterTaskInfo.getReplacedTask() != null) {
+            currentTask.applyUserTaskDefinition(alterTaskInfo.getReplacedTask());
+        }
         // Handle properties update
         if (alterTaskInfo.getProperties() != null) {
             Map<String, String> current = currentTask.getProperties();
@@ -1033,9 +1040,79 @@ public class TaskManager implements MemoryTrackable {
         }
     }
 
+    /**
+     * Replaces what CREATE OR REPLACE TASK / ALTER TASK SET, UNSET and MODIFY AS change in a suspended Snowflake
+     * style task. The task keeps its id, owner and run history.
+     * NOTE: this method will write edit log.
+     */
+    public void replaceUserTask(Task currentTask, Task changedTask) throws DdlException {
+        takeTaskLock();
+        try {
+            if (currentTask.getState() == Constants.TaskState.ACTIVE) {
+                throw new DdlException("Task [" + currentTask.getName() + "] must be suspended before it is changed, "
+                        + "use ALTER TASK " + currentTask.getName() + " SUSPEND");
+            }
+            GlobalStateMgr.getCurrentState().getEditLog().logAlterTask(
+                    AlterTaskInfo.ofReplacedTask(currentTask.getName(), changedTask),
+                    wal -> currentTask.applyUserTaskDefinition(((AlterTaskInfo) wal).getReplacedTask()));
+        } finally {
+            taskUnlock();
+        }
+    }
+
+    /**
+     * Schedules the next run of a 'USING CRON' task. Unlike an interval, a cron schedule has no fixed period, so
+     * every fire schedules the one after it.
+     */
+    private void registerCronScheduler(Task task, long afterMs) {
+        long nextMs;
+        try {
+            nextMs = UserTaskSpec.nextCronFireTimeMs(task.getSchedule(), afterMs);
+        } catch (Exception e) {
+            LOG.warn("invalid cron schedule of task {}: {}", task.getName(), task.getSchedule(), e);
+            return;
+        }
+        if (nextMs < 0) {
+            LOG.warn("cron schedule of task {} never fires again: {}", task.getName(), task.getSchedule());
+            return;
+        }
+        task.setNextScheduleTime(nextMs / 1000);
+        long delayMs = Math.max(0, nextMs - System.currentTimeMillis());
+        LOG.info("Register cron scheduler, task:{}, schedule:{}, nextScheduleTimeMs:{}", task.getName(),
+                task.getSchedule(), nextMs);
+        ScheduledFuture<?> future = periodScheduler.schedule(() -> fireCronTask(task, nextMs), delayMs,
+                TimeUnit.MILLISECONDS);
+        ScheduledFuture<?> replaced = periodFutureMap.put(task.getId(), future);
+        if (replaced != null) {
+            replaced.cancel(false);
+        }
+    }
+
+    private void fireCronTask(Task task, long fireTimeMs) {
+        // A task suspended, changed or dropped since this fire was scheduled stops here instead of scheduling again.
+        if (task.getState() != Constants.TaskState.ACTIVE || idToTaskMap.get(task.getId()) != task) {
+            return;
+        }
+        if (GlobalStateMgr.getCurrentState().isLeader()) {
+            try {
+                task.setLastScheduleTime(TimeUtils.getEpochSeconds());
+                ExecuteOption option = new ExecuteOption(Constants.TaskRunPriority.LOWEST.value(), true,
+                        task.getProperties());
+                executeTask(task.getName(), option);
+            } catch (Throwable e) {
+                LOG.warn("failed to execute cron task: {}", task, e);
+            }
+        }
+        registerCronScheduler(task, Math.max(fireTimeMs, System.currentTimeMillis()));
+    }
+
     @VisibleForTesting
     void registerScheduler(Task task) {
         if (task.getType() != Constants.TaskType.PERIODICAL) {
+            return;
+        }
+        if (task.getSchedule() != null && task.getSchedule().isCron()) {
+            registerCronScheduler(task, System.currentTimeMillis());
             return;
         }
 

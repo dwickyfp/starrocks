@@ -16,6 +16,7 @@ package com.starrocks.persist;
 import com.google.gson.annotations.SerializedName;
 import com.starrocks.common.io.Writable;
 import com.starrocks.scheduler.Constants;
+import com.starrocks.scheduler.Task;
 import com.starrocks.scheduler.persist.TaskSchedule;
 
 import java.util.Map;
@@ -36,6 +37,10 @@ public class AlterTaskInfo implements Writable {
     @SerializedName("properties")
     private Map<String, String> properties;
 
+    // The new definition of a Snowflake style task changed by CREATE OR REPLACE / ALTER TASK
+    @SerializedName("replacedTask")
+    private Task replacedTask;
+
     public AlterTaskInfo() {
         // for persist
     }
@@ -54,6 +59,17 @@ public class AlterTaskInfo implements Writable {
     public AlterTaskInfo(String name, Map<String, String> properties) {
         this.name = name;
         this.properties = properties;
+    }
+
+    public static AlterTaskInfo ofReplacedTask(String name, Task replacedTask) {
+        AlterTaskInfo info = new AlterTaskInfo();
+        info.name = name;
+        info.replacedTask = replacedTask;
+        return info;
+    }
+
+    public Task getReplacedTask() {
+        return replacedTask;
     }
 
     public String getName() {

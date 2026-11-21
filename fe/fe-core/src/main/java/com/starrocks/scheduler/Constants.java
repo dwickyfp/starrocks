@@ -47,7 +47,9 @@ public class Constants {
         MV,
         INSERT,
         PIPE,
-        DATACACHE_SELECT;
+        DATACACHE_SELECT,
+        // Snowflake style task created by CREATE TASK: one statement or a script of statements
+        USER_SQL;
 
         // Whether the task source is mergeable, only MV is mergeable by default.
         public boolean isMergeable() {

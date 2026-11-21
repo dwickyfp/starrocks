@@ -42,6 +42,7 @@ import com.starrocks.load.EtlJobType;
 import com.starrocks.scheduler.Constants;
 import com.starrocks.scheduler.Task;
 import com.starrocks.scheduler.TaskManager;
+import com.starrocks.scheduler.UserTaskExecutor;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.WarehouseManager;
 import com.starrocks.sql.analyzer.FunctionRefAnalyzer;
@@ -166,6 +167,9 @@ import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
+import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
+import com.starrocks.sql.ast.task.CreateTaskStmt;
+import com.starrocks.sql.ast.task.ExecuteTaskStmt;
 import com.starrocks.sql.ast.warehouse.AlterWarehouseStmt;
 import com.starrocks.sql.ast.warehouse.CreateWarehouseStmt;
 import com.starrocks.sql.ast.warehouse.DropWarehouseStmt;
@@ -1155,6 +1159,23 @@ public class DDLStmtExecutor {
             } catch (StarRocksException e) {
                 throw new RuntimeException(e);
             }
+        }
+
+        @Override
+        public ShowResultSet visitCreateTaskStatement(CreateTaskStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> UserTaskExecutor.createTask(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitAlterTaskOptionsStatement(AlterTaskOptionsStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> UserTaskExecutor.alterTask(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitExecuteTaskStatement(ExecuteTaskStmt stmt, ConnectContext context) {
+            return UserTaskExecutor.executeTask(stmt);
         }
 
         @Override
