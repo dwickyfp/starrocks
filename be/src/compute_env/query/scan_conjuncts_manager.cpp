@@ -567,6 +567,13 @@ requires(!lt_is_date<SlotType>) Status ChunkPredicateBuilder<E, Type>::normalize
             values.insert(decoder.decode(value));
         }
 
+        // `col in (null, null)`: the NULLs were eliminated above and no value is left. An empty value set
+        // would make add_fixed_values clear the range (no filter at all) while the conjunct is marked as
+        // normalized, so every row would pass. Keep the conjunct to be evaluated as is, like the DATE path.
+        if (values.empty()) {
+            return Status::OK();
+        }
+
         if (range->add_fixed_values(FILTER_IN, values).ok()) {
             _normalized_exprs[i] = true;
         }
