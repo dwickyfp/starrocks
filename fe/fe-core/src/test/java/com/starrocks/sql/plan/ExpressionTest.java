@@ -64,6 +64,28 @@ public class ExpressionTest extends PlanTestBase {
                 + "  |  <slot 8> : 7: add + 3: v3\n"));
     }
 
+    // Issue #84125: the range extractor must not replace the conjuncts with the extracted range when a
+    // conjunct is not a range by itself. `v > v` derives the bound `v > 1` again, which made the range look
+    // like it covered all three conjuncts, so `v > v` and the IS NULL were dropped.
+    @Test
+    public void testRangeExtractKeepsConjunctsThatAreNotRanges() throws Exception {
+        for (String table : new String[] {"t0", "t0_not_null"}) {
+            String sql = "select v1 from " + table + " where v1 > v1 and 1 < v1 and (v1 between v1 and v1) is null";
+            String plan = getFragmentPlan(sql);
+            // `v1 > v1` is never TRUE: the plan must either keep it (with the IS NULL) or prove the
+            // filter is always false, but never reduce it to the extracted range `v1 > 1` alone.
+            assertNotContains(plan, "PREDICATES: 1: v1 > 1\n");
+            if (!plan.contains("EMPTYSET")) {
+                assertContains(plan, "1: v1 > 1: v1");
+                assertContains(plan, "IS NULL");
+            }
+        }
+
+        // all conjuncts are ranges on the same column: they are still merged into one range
+        String plan = getFragmentPlan("select v1 from t0 where v1 > 1 and v1 > 2 and v1 < 10");
+        assertContains(plan, "PREDICATES: 1: v1 > 2, 1: v1 < 10");
+    }
+
     // Different select-list items that translate to equal scalar operators share one output column
     // (QueryTransformer.getOrCreateColumnRefOperator). Repeats of one Expr are already merged by ExpressionMapping,
     // so they do not test it.

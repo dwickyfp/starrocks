@@ -106,8 +106,15 @@ public class ScalarRangePredicateExtractor {
             // wrong result.
             //
             // Components of AND/OR should be deduplicated at first to avoid this issue.
+            //
+            // getSourceCount is also not a count of conjuncts: a bound derived from a column-to-column
+            // relation inherits the source count of the range it was derived from. For
+            // v > v AND v > 1 AND (v BETWEEN v AND v) IS NULL, `v > v` derives `v > 1` once more, the
+            // range on v ends with sourceCount = 3 = cs.size() although only `v > 1` is a range, and
+            // the other two conjuncts were dropped. So every conjunct must be a range by itself.
             if (extractMap.values().stream().allMatch(valueDescriptor -> valueDescriptor.getSourceCount() == cs.size())
-                    && extractMap.size() == cf.size()) {
+                    && extractMap.size() == cf.size()
+                    && cs.stream().noneMatch(c -> extractImpl(c).isEmpty())) {
                 if (result.size() == conjuncts.size()) {
                     // to keep the isPushdown/isRedundant of predicate
                     return predicate;
