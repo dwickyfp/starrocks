@@ -81,7 +81,7 @@ public class AggregatePushDownTest extends PlanTestBase {
         // that phantom row through a keyless join (CROSS JOIN, or an INNER JOIN whose condition
         // contributes no columns) would corrupt the join's cardinality instead of correctly
         // producing no rows/groups, so both the collector and the rewriter must refuse to push count()
-        // in that shape (PushDownAggregateUtils#isUngroupedCountPush).
+        // in that shape (PushDownAggregateUtils#isUngroupedPush).
         String crossJoinPlan = getFragmentPlan("select t1.v4, count(*) from t0, t1 group by t1.v4");
         Assertions.assertEquals(1, StringUtils.countMatches(crossJoinPlan, ":AGGREGATE "));
         assertNotContains(crossJoinPlan, "group by: \n");
@@ -118,6 +118,28 @@ public class AggregatePushDownTest extends PlanTestBase {
         String realJoinPlan =
                 getFragmentPlan("select t0.v1, count(*) from t0 join t1 on t0.v1 = t1.v4 group by t0.v1");
         Assertions.assertEquals(2, StringUtils.countMatches(realJoinPlan, ":AGGREGATE "));
+    }
+
+    @Test
+    public void testNonCountAggNotPushedBelowKeylessJoin() throws Exception {
+        // Same phantom-row problem as count, for every other aggregate: pushed below a keyless join without a
+        // real grouping key, max/min/sum become scalar aggregates that emit one NULL row for an empty child,
+        // so `group by <constant> having max(..) is null` over an empty join returned one row (issue #84129).
+        String[] sqls = {
+                "select 1 from t0 a, t1 b where b.v4 < 0 group by 'a' having max(b.v4) is null",
+                "select 1 from t0 a, t1 b where b.v4 < 0 group by 1 + 1 having min(b.v4) is null",
+                "select 1 from t0 a, t1 b where b.v4 < 0 group by 'a' having sum(b.v4) is null",
+                "select a.v1, max(b.v4) from t0 a, t1 b group by a.v1",
+                "select a.v1, max(b.v4) from t0 a inner join t1 b on 1 = 1 group by a.v1",
+        };
+        for (String sql : sqls) {
+            String plan = getFragmentPlan(sql);
+            assertNotContains(plan, "group by: \n");
+        }
+
+        // Sanity: an equi-join still gets max pushed below it, keyed by the join column.
+        String equiJoinPlan = getFragmentPlan("select a.v1, max(b.v5) from t0 a join t1 b on a.v1 = b.v4 group by a.v1");
+        Assertions.assertEquals(2, StringUtils.countMatches(equiJoinPlan, ":AGGREGATE "), equiJoinPlan);
     }
 
     @Test
