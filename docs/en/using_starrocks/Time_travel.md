@@ -1,5 +1,6 @@
 ---
 displayed_sidebar: docs
+description: "Read native tables as they were at a past point in time with AT, BEFORE and FOR TIMESTAMP AS OF, and set data retention."
 ---
 
 # Time travel on native tables
