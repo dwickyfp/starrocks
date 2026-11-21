@@ -72,9 +72,13 @@ public class ExpressionTest extends PlanTestBase {
         for (String table : new String[] {"t0", "t0_not_null"}) {
             String sql = "select v1 from " + table + " where v1 > v1 and 1 < v1 and (v1 between v1 and v1) is null";
             String plan = getFragmentPlan(sql);
+            // `v1 > v1` is never TRUE: the plan must either keep it (with the IS NULL) or prove the
+            // filter is always false, but never reduce it to the extracted range `v1 > 1` alone.
             assertNotContains(plan, "PREDICATES: 1: v1 > 1\n");
-            assertContains(plan, "1: v1 > 1: v1");
-            assertContains(plan, "IS NULL");
+            if (!plan.contains("EMPTYSET")) {
+                assertContains(plan, "1: v1 > 1: v1");
+                assertContains(plan, "IS NULL");
+            }
         }
 
         // all conjuncts are ranges on the same column: they are still merged into one range
