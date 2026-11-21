@@ -2268,13 +2268,13 @@ public class AggregateTest extends PlanTestBase {
     public void testRewriteSumByAssociativeRuleKeepsBooleanToDoubleCast() throws Exception {
         // sum(BOOLEAN) returns BIGINT, so the cast from BOOLEAN to DOUBLE must not be stripped:
         // BE has no sum(BOOLEAN) -> DOUBLE implementation.
-        String sql = "select sum(cast(id_bool as int) + (3/2)) from test_all_type";
+        String sql = "select sum(cast(id_bool as int) + (3/2)) from test_bool";
         String plan = getVerboseExplain(sql);
         assertNotContains(plan, "sum[([11: id_bool, BOOLEAN, true]); args: BOOLEAN; result: DOUBLE");
         assertContains(plan, "args: DOUBLE; result: DOUBLE");
 
         // when the sum result type is BIGINT, sum(BOOLEAN) is a valid signature and the cast can still go
-        sql = "select sum(cast(id_bool as tinyint) + 1) from test_all_type";
+        sql = "select sum(cast(id_bool as tinyint) + 1) from test_bool";
         plan = getVerboseExplain(sql);
         assertContains(plan, "sum[([11: id_bool, BOOLEAN, true]); args: BOOLEAN; result: BIGINT");
     }
