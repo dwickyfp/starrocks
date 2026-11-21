@@ -71,6 +71,8 @@ import com.starrocks.qe.ShowExecutor;
 import com.starrocks.qe.ShowResultSet;
 import com.starrocks.qe.SqlModeHelper;
 import com.starrocks.qe.StmtExecutor;
+import com.starrocks.scheduler.Task;
+import com.starrocks.scheduler.TaskManager;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.MetadataMgr;
 import com.starrocks.server.WarehouseManager;
@@ -1269,6 +1271,58 @@ public class PrivilegeCheckerTest extends StarRocksTestBase {
         ctxToRoot();
         DDLStmtExecutor.execute(statement, ctx);
         Authorizer.check(statement, ctx);
+    }
+
+    @Test
+    public void testDropAndAlterTaskRequireOwnerOrOperate() throws Exception {
+        ConnectContext ctx = starRocksAssert.getCtx();
+        TaskManager taskManager = GlobalStateMgr.getCurrentState().getTaskManager();
+        Task rootTask = new Task("priv_root_task");
+        rootTask.setId(GlobalStateMgr.getCurrentState().getNextId());
+        rootTask.setDbName("db1");
+        rootTask.setDefinition("insert into db1.tbl1 select * from db1.tbl1");
+        rootTask.setCreateUser(UserIdentity.ROOT.getUser());
+        rootTask.setUserIdentity(UserIdentity.ROOT);
+        taskManager.replayCreateTask(rootTask);
+
+        Task ownTask = new Task("priv_own_task");
+        ownTask.setId(GlobalStateMgr.getCurrentState().getNextId());
+        ownTask.setDbName("db1");
+        ownTask.setDefinition("insert into db1.tbl1 select * from db1.tbl1");
+        ownTask.setCreateUser(testUser.getUser());
+        ownTask.setUserIdentity(testUser);
+        taskManager.replayCreateTask(ownTask);
+
+        try {
+            // Another user's task needs the system OPERATE privilege.
+            for (String sql : Arrays.asList(
+                    "drop task priv_root_task",
+                    "drop task if exists priv_root_task force",
+                    "alter task priv_root_task suspend",
+                    "alter task priv_root_task resume",
+                    "alter task priv_root_task set (\"query_timeout\" = \"10\")")) {
+                verifyGrantRevoke(sql, "grant OPERATE on system to test", "revoke OPERATE on system from test",
+                        "Access denied;");
+            }
+
+            // The creator can manage its own task without extra privileges.
+            for (String sql : Arrays.asList(
+                    "drop task priv_own_task",
+                    "alter task priv_own_task suspend",
+                    "alter task priv_own_task resume")) {
+                ctxToRoot();
+                verifySuccess(sql, ctx);
+            }
+
+            // A missing task is left to the executor, so IF EXISTS keeps working.
+            ctxToRoot();
+            verifySuccess("drop task if exists priv_not_exist_task", ctx);
+            ctxToRoot();
+            verifySuccess("alter task if exists priv_not_exist_task suspend", ctx);
+        } finally {
+            ctxToRoot();
+            taskManager.replayDropTasks(Arrays.asList(rootTask.getId(), ownTask.getId()));
+        }
     }
 
     @Test

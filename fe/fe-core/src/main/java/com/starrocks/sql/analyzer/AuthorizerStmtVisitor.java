@@ -50,6 +50,7 @@ import com.starrocks.load.routineload.RoutineLoadJob;
 import com.starrocks.persist.TableRefPersist;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SessionVariable;
+import com.starrocks.scheduler.Task;
 import com.starrocks.server.CatalogMgr;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.WarehouseManager;
@@ -82,6 +83,7 @@ import com.starrocks.sql.ast.AlterRoutineLoadStmt;
 import com.starrocks.sql.ast.AlterStorageVolumeStmt;
 import com.starrocks.sql.ast.AlterSystemStmt;
 import com.starrocks.sql.ast.AlterTableStmt;
+import com.starrocks.sql.ast.AlterTaskStmt;
 import com.starrocks.sql.ast.AlterViewClause;
 import com.starrocks.sql.ast.AlterViewStmt;
 import com.starrocks.sql.ast.AnalyzeProfileStmt;
@@ -138,6 +140,7 @@ import com.starrocks.sql.ast.DropSnapshotStmt;
 import com.starrocks.sql.ast.DropStatsStmt;
 import com.starrocks.sql.ast.DropStorageVolumeStmt;
 import com.starrocks.sql.ast.DropTableStmt;
+import com.starrocks.sql.ast.DropTaskStmt;
 import com.starrocks.sql.ast.DropUserStmt;
 import com.starrocks.sql.ast.ExecuteAsStmt;
 import com.starrocks.sql.ast.ExecuteScriptStmt;
@@ -2393,6 +2396,51 @@ public class AuthorizerStmtVisitor implements AstVisitorExtendInterface<Void, Co
             visitInsertStatement(statement.getInsertStmt(), context);
         }
         return null;
+    }
+
+    @Override
+    public Void visitDropTaskStmt(DropTaskStmt statement, ConnectContext context) {
+        checkTaskOwnerOrOperate(statement.getTaskName().getName(), context);
+        return null;
+    }
+
+    @Override
+    public Void visitAlterTaskStatement(AlterTaskStmt statement, ConnectContext context) {
+        checkTaskOwnerOrOperate(statement.getTaskName().getName(), context);
+        return null;
+    }
+
+    /**
+     * DROP TASK and ALTER TASK (RESUME / SUSPEND / SET) act on a task that may run arbitrary SQL with its
+     * creator's privileges, so they are allowed only for the task creator or a user with the system
+     * OPERATE privilege. A missing task is not checked here, so IF EXISTS and the "not exist" error keep
+     * working as before.
+     */
+    private void checkTaskOwnerOrOperate(String taskName, ConnectContext context) {
+        Task task = GlobalStateMgr.getCurrentState().getTaskManager().getTask(taskName);
+        if (task == null || isTaskCreator(task, context)) {
+            return;
+        }
+        try {
+            Authorizer.checkSystemAction(context, PrivilegeType.OPERATE);
+        } catch (AccessDeniedException e) {
+            AccessDeniedException.reportAccessDenied(
+                    InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME,
+                    context.getCurrentUserIdentity(), context.getCurrentRoleIds(),
+                    PrivilegeType.OPERATE.name(), ObjectType.SYSTEM.name(), null);
+        }
+    }
+
+    private static boolean isTaskCreator(Task task, ConnectContext context) {
+        UserIdentity current = context.getCurrentUserIdentity();
+        if (current == null) {
+            return false;
+        }
+        if (task.getUserIdentity() != null) {
+            return task.getUserIdentity().equals(current);
+        }
+        // Tasks persisted before createUserIdentity existed only carry the user name.
+        return current.getUser().equals(task.getCreateUser());
     }
 
     @Override
