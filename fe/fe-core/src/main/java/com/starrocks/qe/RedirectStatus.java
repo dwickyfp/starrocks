@@ -17,6 +17,7 @@
 
 package com.starrocks.qe;
 
+import com.starrocks.procedure.ProcedureExecutor;
 import com.starrocks.sql.ast.AddBackendBlackListStmt;
 import com.starrocks.sql.ast.AddComputeNodeBlackListStmt;
 import com.starrocks.sql.ast.AddSqlBlackListStmt;
@@ -1656,8 +1657,9 @@ public class RedirectStatus {
 
         @Override
         public RedirectStatus visitExecuteImmediateStatement(ExecuteImmediateStmt statement, Void context) {
-            // like CALL: the statements inside run in the session, so they forward on their own
-            return RedirectStatus.NO_FORWARD;
+            // A script runs DML, DDL and transactions through internal executors, which do not forward on
+            // their own, so the whole script runs on the leader.
+            return RedirectStatus.FORWARD_WITH_SYNC;
         }
 
         @Override
@@ -1845,6 +1847,12 @@ public class RedirectStatus {
 
         @Override
         public RedirectStatus visitCallProcedureStatement(CallProcedureStatement statement, Void context) {
+            // A stored procedure body runs like EXECUTE IMMEDIATE, so it runs on the leader. Connector
+            // procedures (for example Iceberg's) keep running on the FE the client is connected to.
+            ConnectContext session = ConnectContext.get();
+            if (session != null && ProcedureExecutor.resolve(statement.getQualifiedName().getParts(), session) != null) {
+                return RedirectStatus.FORWARD_WITH_SYNC;
+            }
             return RedirectStatus.NO_FORWARD;
         }
 

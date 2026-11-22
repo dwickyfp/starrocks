@@ -21,6 +21,7 @@ import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.PhysicalPartition;
 import com.starrocks.catalog.Replica;
 import com.starrocks.catalog.Tablet;
+import com.starrocks.common.FeConstants;
 import com.starrocks.common.util.TimeUtils;
 import com.starrocks.persist.gson.GsonUtils;
 import com.starrocks.planner.OlapScanNode;
@@ -28,9 +29,15 @@ import com.starrocks.planner.ScanNode;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.DDLStmtExecutor;
 import com.starrocks.qe.GlobalVariable;
+import com.starrocks.qe.SessionVariable;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.StatementPlanner;
+import com.starrocks.sql.ast.RecoverDbStmt;
+import com.starrocks.sql.ast.RecoverPartitionStmt;
+import com.starrocks.sql.ast.RecoverTableStmt;
 import com.starrocks.sql.ast.StatementBase;
+import com.starrocks.sql.optimizer.Utils;
+import com.starrocks.sql.optimizer.operator.physical.PhysicalOlapScanOperator;
 import com.starrocks.sql.parser.SqlParser;
 import com.starrocks.sql.plan.ExecPlan;
 import com.starrocks.utframe.StarRocksAssert;
@@ -157,6 +164,55 @@ public class TimeTravelTest {
     }
 
     @Test
+    public void testNoTimeTravelBeforeTheDataWasReplaced() throws Exception {
+        starRocksAssert.withTable("CREATE TABLE replaced (k INT, v INT) DUPLICATE KEY (k) DISTRIBUTED BY HASH(k) "
+                + "BUCKETS 1 PROPERTIES ('replication_num' = '1', 'data_retention_time_in_days' = '1')");
+        OlapTable replaced = table("replaced");
+        PhysicalPartition partition = partition(replaced);
+        partition.setVisibleVersion(1, base - 4 * HOUR);
+        publish(replaced, partition, 2, base - 3 * HOUR);
+        Assertions.assertEquals(List.of(1L),
+                scanVersions("SELECT * FROM replaced AT(TIMESTAMP => '" + at(base - 210 * 60_000L) + "')"));
+
+        // TRUNCATE replaces the partition with an empty one: its past is gone, not empty
+        starRocksAssert.getCtx().setThreadLocalInfo();
+        DDLStmtExecutor.execute(UtFrameUtils.parseStmtWithNewParser("TRUNCATE TABLE replaced", starRocksAssert.getCtx()),
+                starRocksAssert.getCtx());
+        PhysicalPartition truncated = partition(table("replaced"));
+        Assertions.assertNotEquals(partition.getId(), truncated.getId());
+        Assertions.assertEquals(truncated.getVisibleVersionTime(), truncated.getHistoryFloorTime());
+        String message = error("SELECT * FROM replaced AT(TIMESTAMP => '" + at(base - 150 * 60_000L) + "')");
+        Assertions.assertTrue(message.contains("when its data was replaced"), message);
+        // after it, the table reads as it is
+        Thread.sleep(2100);
+        Assertions.assertEquals(List.of(1L), scanVersions("SELECT * FROM replaced AT(TIMESTAMP => '"
+                + at(truncated.getHistoryFloorTime() + 1000) + "')"));
+
+        // a schema change marks the whole table
+        table("replaced").markHistoryFloor(base + HOUR);
+        Assertions.assertEquals(base + HOUR, partition(table("replaced")).getHistoryFloorTime());
+        table("replaced").markHistoryFloor(base);
+        Assertions.assertEquals(base + HOUR, partition(table("replaced")).getHistoryFloorTime(), "the floor only rises");
+    }
+
+    @Test
+    public void testUndropIsRecover() throws Exception {
+        ConnectContext ctx = starRocksAssert.getCtx();
+        Assertions.assertInstanceOf(RecoverTableStmt.class, UtFrameUtils.parseStmtWithNewParser("UNDROP TABLE tt.gone", ctx));
+        Assertions.assertInstanceOf(RecoverDbStmt.class, SqlParser.parse("UNDROP DATABASE gone_db",
+                ctx.getSessionVariable()).get(0));
+        Assertions.assertInstanceOf(RecoverPartitionStmt.class, SqlParser.parse("UNDROP PARTITION p1 FROM tt.kept",
+                ctx.getSessionVariable()).get(0));
+
+        starRocksAssert.withTable("CREATE TABLE dropped_one (k INT) DUPLICATE KEY (k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1')");
+        starRocksAssert.dropTable("dropped_one");
+        Assertions.assertNull(GlobalStateMgr.getCurrentState().getLocalMetastore().getTable("tt", "dropped_one"));
+        DDLStmtExecutor.execute(UtFrameUtils.parseStmtWithNewParser("UNDROP TABLE dropped_one", ctx), ctx);
+        Assertions.assertNotNull(GlobalStateMgr.getCurrentState().getLocalMetastore().getTable("tt", "dropped_one"));
+    }
+
+    @Test
     public void testRetentionLimits() {
         Assertions.assertTrue(error("SELECT * FROM kept AT(OFFSET => -2 * 86400)").contains("beyond its data retention"));
         Assertions.assertTrue(error("SELECT * FROM kept AT(OFFSET => 3600)").contains("in the future"));
@@ -242,5 +298,46 @@ public class TimeTravelTest {
         Assertions.assertEquals(TimeTravelBeConfigSyncer.BE_DEFAULT_SECONDS, TimeTravelBeConfigSyncer.targetSeconds(0));
         Assertions.assertEquals(86400 + 3600, TimeTravelBeConfigSyncer.targetSeconds(1));
         Assertions.assertEquals(90 * 86400 + 3600, TimeTravelBeConfigSyncer.targetSeconds(90));
+    }
+
+    /** The global dicts of the scans of {@code sql}, with low cardinality optimization v1 or v2. */
+    private static int globalDicts(String sql, boolean v2) throws Exception {
+        ConnectContext ctx = starRocksAssert.getCtx();
+        ctx.setThreadLocalInfo();
+        SessionVariable saved = ctx.getSessionVariable().clone();
+        boolean savedMock = FeConstants.USE_MOCK_DICT_MANAGER;
+        try {
+            FeConstants.USE_MOCK_DICT_MANAGER = true;
+            ctx.getSessionVariable().setEnableLowCardinalityOptimize(true);
+            ctx.getSessionVariable().setUseLowCardinalityOptimizeV2(v2);
+            ExecPlan plan = StatementPlanner.plan(SqlParser.parse(sql, ctx.getSessionVariable()).get(0), ctx);
+            int dicts = 0;
+            for (PhysicalOlapScanOperator scan : Utils.extractPhysicalOlapScanOperator(plan.getPhysicalPlan())) {
+                dicts += scan.getGlobalDicts().size();
+            }
+            return dicts;
+        } finally {
+            FeConstants.USE_MOCK_DICT_MANAGER = savedMock;
+            ctx.setSessionVariable(saved);
+        }
+    }
+
+    @Test
+    public void testNoGlobalDictForThePast() throws Exception {
+        // the global dict of a column is built from its current values: an older version may hold others
+        starRocksAssert.withTable("CREATE TABLE named (k INT, s VARCHAR(16)) DUPLICATE KEY (k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num' = '1', "
+                + "'data_retention_time_in_days' = '1')");
+        OlapTable named = table("named");
+        PhysicalPartition partition = partition(named);
+        partition.setVisibleVersion(1, base - 4 * HOUR);
+        publish(named, partition, 2, base - 3 * HOUR);
+        publish(named, partition, 3, base - HOUR);
+        String now = "SELECT s, count(*) FROM named GROUP BY s";
+        String past = "SELECT s, count(*) FROM named AT(TIMESTAMP => '" + at(base - 2 * HOUR) + "') GROUP BY s";
+        for (boolean v2 : List.of(true, false)) {
+            Assertions.assertTrue(globalDicts(now, v2) > 0, "the dict rewrite runs for a current read, v2=" + v2);
+            Assertions.assertEquals(0, globalDicts(past, v2), "no dict rewrite for a time travel read, v2=" + v2);
+        }
     }
 }

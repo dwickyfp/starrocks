@@ -916,6 +916,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // all partitions are good
             persistStateChange(this, JobState.FINISHED, true, () -> {
                 onFinished(tbl);
+                // the new tablets do not have the versions before the schema change
+                tbl.markHistoryFloor(finishedTimeMs);
                 // If schema changes include fields which defined in related mv, set those mv state to inactive.
                 AlterMVJobExecutor.inactiveRelatedMaterializedViewsRecursive(tbl, modifiedColumns);
 
@@ -1264,6 +1266,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 locker.lockTablesWithIntensiveDbLock(db.getId(), Lists.newArrayList(tbl.getId()), LockType.WRITE);
                 try {
                     onFinished(tbl);
+                    tbl.markHistoryFloor(replayedJob.finishedTimeMs);
                     tbl.onReload();
                 } finally {
                     locker.unLockTablesWithIntensiveDbLock(db.getId(), Lists.newArrayList(tbl.getId()), LockType.WRITE);

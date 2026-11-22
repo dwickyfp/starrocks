@@ -315,13 +315,44 @@ public abstract class ScriptNode {
         }
     }
 
-    /** {@code EXECUTE IMMEDIATE expr}: the expression's value is a statement or a block to run. */
+    /**
+     * {@code EXECUTE IMMEDIATE expr [USING (a, b)]}: the expression's value is a statement or a block to run; its
+     * {@code ?} placeholders take the values of the USING variables in order.
+     */
     public static final class ExecuteImmediate extends ScriptNode {
         public final Text statement;
+        public final List<String> using;
 
-        public ExecuteImmediate(int line, Text statement) {
+        public ExecuteImmediate(int line, Text statement, List<String> using) {
             super(line);
             this.statement = statement;
+            this.using = using;
+        }
+    }
+
+    /**
+     * {@code name RESULTSET [DEFAULT | := source]} in DECLARE, or {@code LET name RESULTSET := source}. The source,
+     * null when not given, is {@code (SELECT ...)}, {@code (EXECUTE IMMEDIATE ...)} or {@code (CALL p(...))} of a
+     * RETURNS TABLE procedure; it runs when assigned.
+     */
+    public static final class ResultSetDecl extends ScriptNode {
+        public final String name;
+        public final Text source;
+
+        public ResultSetDecl(int line, String name, Text source) {
+            super(line);
+            this.name = name;
+            this.source = source;
+        }
+    }
+
+    /** {@code RETURN TABLE(rs)} with a RESULTSET variable, or {@code RETURN TABLE(SELECT ...)}. */
+    public static final class ReturnTable extends ScriptNode {
+        public final Text source;
+
+        public ReturnTable(int line, Text source) {
+            super(line);
+            this.source = source;
         }
     }
 

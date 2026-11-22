@@ -45,9 +45,9 @@ import java.util.stream.Collectors;
 /**
  * Options and body of a Snowflake style task (source {@link Constants.TaskSource#USER_SQL}).
  *
- * <p>Task options are {@code KEY = value}. SCHEDULE, WAREHOUSE, COMMENT, USER_TASK_TIMEOUT_MS and
- * SUSPEND_TASK_AFTER_NUM_FAILURES are task options; any other key must be a session variable, which is set for
- * every run of the task.
+ * <p>Task options are {@code KEY = value}. SCHEDULE, WAREHOUSE, COMMENT, USER_TASK_TIMEOUT_MS,
+ * SUSPEND_TASK_AFTER_NUM_FAILURES, TASK_AUTO_RETRY_ATTEMPTS and FINALIZE are task options; any other key must be a
+ * session variable, which is set for every run of the task.
  */
 public final class UserTaskSpec {
     public static final String SCHEDULE = "SCHEDULE";
@@ -55,6 +55,9 @@ public final class UserTaskSpec {
     public static final String COMMENT = "COMMENT";
     public static final String USER_TASK_TIMEOUT_MS = "USER_TASK_TIMEOUT_MS";
     public static final String SUSPEND_TASK_AFTER_NUM_FAILURES = "SUSPEND_TASK_AFTER_NUM_FAILURES";
+    // Set on a root task: how many times a failed task of its graph (or the root itself) runs again.
+    public static final String TASK_AUTO_RETRY_ATTEMPTS = "TASK_AUTO_RETRY_ATTEMPTS";
+    public static final int MAX_TASK_AUTO_RETRY_ATTEMPTS = 30;
     // FINALIZE = <root task>: the task runs once after every run of that root's task graph.
     public static final String FINALIZE = "FINALIZE";
     // Kept with the options, but set only by the AFTER and WHEN clauses: the predecessor task names, comma
@@ -120,6 +123,13 @@ public final class UserTaskSpec {
                     }
                     taskOptions.put(SUSPEND_TASK_AFTER_NUM_FAILURES, String.valueOf(failures));
                     break;
+                case TASK_AUTO_RETRY_ATTEMPTS:
+                    long attempts = parseNonNegativeLong(key, value);
+                    if (attempts > MAX_TASK_AUTO_RETRY_ATTEMPTS) {
+                        throw new SemanticException(key + " must be at most " + MAX_TASK_AUTO_RETRY_ATTEMPTS + ": " + value);
+                    }
+                    taskOptions.put(TASK_AUTO_RETRY_ATTEMPTS, String.valueOf(attempts));
+                    break;
                 default:
                     String variable = key.toLowerCase(Locale.ROOT);
                     if (!GlobalStateMgr.getCurrentState().getVariableMgr().containsVariable(variable)
@@ -154,6 +164,7 @@ public final class UserTaskSpec {
                 case COMMENT:
                 case USER_TASK_TIMEOUT_MS:
                 case SUSPEND_TASK_AFTER_NUM_FAILURES:
+                case TASK_AUTO_RETRY_ATTEMPTS:
                 case FINALIZE:
                     taskOptions.remove(key);
                     break;
@@ -428,6 +439,11 @@ public final class UserTaskSpec {
     public static long getUserTaskTimeoutMs(Task task) {
         String value = task.getTaskOption(USER_TASK_TIMEOUT_MS);
         return value == null ? 0 : Long.parseLong(value);
+    }
+
+    public static int getAutoRetryAttempts(Task task) {
+        String value = task == null ? null : task.getTaskOption(TASK_AUTO_RETRY_ATTEMPTS);
+        return value == null ? 0 : Integer.parseInt(value);
     }
 
     public static int getSuspendAfterNumFailures(Task task) {

@@ -108,10 +108,37 @@ public class ScriptParserTest {
         Assertions.assertEquals(4, e.getLine());
         Assertions.assertTrue(e.getMessage().contains("Expected IF"), e.getMessage());
         Assertions.assertThrows(ScriptException.class, () -> ScriptParser.parse("BEGIN SELECT 'x; END"));
-        Assertions.assertThrows(ScriptException.class, () -> ScriptParser.parse("DECLARE x RESULTSET; BEGIN END"));
         Assertions.assertThrows(ScriptException.class, () -> ScriptParser.parse("BEGIN END; extra"));
         Assertions.assertThrows(ScriptException.class, () -> ScriptParser.parse(
-                "BEGIN EXECUTE IMMEDIATE 'x' USING (a); END"));
+                "BEGIN EXECUTE IMMEDIATE 'x' USING a; END"));
+    }
+
+    @Test
+    public void testResultSetsAndUsing() {
+        ScriptNode.Block block = ScriptParser.parse("DECLARE rs RESULTSET; r2 RESULTSET DEFAULT (SELECT 1);\n"
+                + "BEGIN\n"
+                + "  LET r3 RESULTSET := (CALL p(1));\n"
+                + "  rs := (SELECT 2);\n"
+                + "  EXECUTE IMMEDIATE 'SELECT ?' USING (a, :b);\n"
+                + "  RETURN TABLE(rs);\n"
+                + "END");
+        Assertions.assertNull(((ScriptNode.ResultSetDecl) block.declarations.get(0)).source);
+        Assertions.assertEquals("(SELECT 1)", ((ScriptNode.ResultSetDecl) block.declarations.get(1)).source.getSql());
+        ScriptNode.Block body = block;
+        Assertions.assertEquals("(CALL p(1))", ((ScriptNode.ResultSetDecl) body.statements.get(0)).source.getSql());
+        Assertions.assertEquals(List.of("a", "b"), ((ScriptNode.ExecuteImmediate) body.statements.get(2)).using);
+        Assertions.assertEquals("(rs)", ((ScriptNode.ReturnTable) body.statements.get(3)).source.getSql());
+    }
+
+    @Test
+    public void testBindPlaceholders() {
+        Assertions.assertEquals("SELECT 1, 'a?' /* ? */, 'x'",
+                ScriptInterpreter.bindPlaceholders("SELECT ?, 'a?' /* ? */, ?", List.of("1", "'x'")));
+        Assertions.assertEquals("SELECT 1", ScriptInterpreter.bindPlaceholders("SELECT 1", List.of()));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ScriptInterpreter.bindPlaceholders("SELECT ?, ?", List.of("1")));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ScriptInterpreter.bindPlaceholders("SELECT 1", List.of("1")));
     }
 
     @Test
@@ -124,5 +151,25 @@ public class ScriptParserTest {
         Assertions.assertEquals("CAST(NULL AS INT)", ScriptValue.nullOf("INT").toSqlLiteral());
         Assertions.assertEquals("NULL", ScriptValue.nullOf("NULL_TYPE").toSqlLiteral());
         Assertions.assertEquals("DECIMAL(9, 2)", ScriptValue.normalizeType("DECIMAL64(9, 2)"));
+    }
+
+    private static String begin(String sql) {
+        List<ScriptToken> tokens = ScriptLexer.tokenize(sql).stream()
+                .filter(t -> t.getKind() != ScriptToken.Kind.EOF).toList();
+        return ScriptInterpreter.beginTransaction(tokens);
+    }
+
+    @Test
+    public void testSnowflakeBeginTransaction() {
+        Assertions.assertEquals("BEGIN", begin("BEGIN"));
+        Assertions.assertEquals("BEGIN", begin("BEGIN TRANSACTION"));
+        Assertions.assertEquals("BEGIN", begin("begin work"));
+        Assertions.assertEquals("BEGIN", begin("BEGIN TRANSACTION NAME t1"));
+        Assertions.assertEquals("BEGIN", begin("START TRANSACTION"));
+        Assertions.assertEquals("BEGIN", begin("START TRANSACTION NAME t1"));
+        // left to StarRocks as written
+        Assertions.assertNull(begin("START TRANSACTION WITH LABEL l1"));
+        Assertions.assertNull(begin("COMMIT"));
+        Assertions.assertNull(begin("INSERT INTO t VALUES (1)"));
     }
 }

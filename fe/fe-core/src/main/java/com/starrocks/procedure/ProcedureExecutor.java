@@ -26,6 +26,7 @@ import com.starrocks.catalog.UserIdentity;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.PatternMatcher;
 import com.starrocks.common.util.TimeUtils;
+import com.starrocks.procedure.script.QueryResult;
 import com.starrocks.procedure.script.ScriptException;
 import com.starrocks.procedure.script.ScriptInterpreter;
 import com.starrocks.procedure.script.ScriptNode;
@@ -120,6 +121,18 @@ public final class ProcedureExecutor {
             parameters.add(new StoredProcedure.Parameter(p.getName(), ScriptValue.normalizeType(p.getTypeSql()),
                     p.getDefaultSql()));
         }
+        List<StoredProcedure.Parameter> returnColumns = null;
+        if (stmt.getReturnColumns() != null) {
+            returnColumns = new ArrayList<>();
+            Set<String> columnNames = new HashSet<>();
+            for (CreateProcedureStmt.Parameter c : stmt.getReturnColumns()) {
+                if (!columnNames.add(c.getName().toLowerCase(Locale.ROOT))) {
+                    throw new DdlException("Duplicate column " + c.getName() + " in RETURNS TABLE");
+                }
+                returnColumns.add(new StoredProcedure.Parameter(c.getName(), ScriptValue.normalizeType(c.getTypeSql()),
+                        null));
+            }
+        }
         try {
             ScriptParser.parse(stmt.getBody());
         } catch (ScriptException e) {
@@ -134,6 +147,7 @@ public final class ProcedureExecutor {
                 name, parameters, ScriptValue.normalizeType(stmt.getReturnTypeSql()), stmt.isReturnNotNull(), "SQL",
                 stmt.isExecuteAsCaller() ? StoredProcedure.EXECUTE_AS_CALLER : StoredProcedure.EXECUTE_AS_OWNER,
                 ctx.getCurrentUserIdentity(), stmt.getBody(), stmt.getComment(), System.currentTimeMillis());
+        procedure.setReturnColumns(returnColumns);
         StoredProcedureMgr.create(db, procedure, stmt.isOrReplace(), stmt.isIfNotExists());
     }
 
@@ -167,8 +181,8 @@ public final class ProcedureExecutor {
         for (StoredProcedure p : StoredProcedureMgr.list(db)) {
             if ((matcher == null || matcher.match(p.getName())) && canSee(p, db, ctx)) {
                 rows.add(Lists.newArrayList(p.getName(), db.getFullName(),
-                        p.getName() + p.getArgumentsSql() + " RETURN " + StoredProcedure.displayType(p.getReturnTypeSql()),
-                        StoredProcedure.displayType(p.getReturnTypeSql()),
+                        p.getName() + p.getArgumentsSql() + " RETURN " + p.getReturnDisplay(),
+                        p.getReturnDisplay(),
                         p.getLanguage(), p.getExecuteAs(), owner(p), p.getComment() == null ? "" : p.getComment(),
                         TimeUtils.longToTimeString(p.getCreateTime())));
             }
@@ -191,7 +205,7 @@ public final class ProcedureExecutor {
         List<List<String>> rows = new ArrayList<>();
         rows.add(Lists.newArrayList("signature", p.getArgumentsSql()));
         rows.add(Lists.newArrayList("returns",
-                StoredProcedure.displayType(p.getReturnTypeSql()) + (p.isReturnNotNull() ? " NOT NULL" : "")));
+                p.getReturnDisplay() + (p.isReturnNotNull() ? " NOT NULL" : "")));
         rows.add(Lists.newArrayList("language", p.getLanguage()));
         rows.add(Lists.newArrayList("execute as", p.getExecuteAs()));
         rows.add(Lists.newArrayList("owner", owner(p)));
@@ -246,7 +260,7 @@ public final class ProcedureExecutor {
             argumentNames.add(argument.getName().orElse(null));
         }
         boolean named = argumentNames.stream().anyMatch(n -> n != null);
-        ScriptValue result;
+        Result result;
         try {
             result = invoke(procedure, argumentSqls, named ? argumentNames : null, ctx, 1);
         } catch (ScriptException e) {
@@ -254,12 +268,33 @@ public final class ProcedureExecutor {
         } finally {
             ctx.setThreadLocalInfo();
         }
-        ShowResultSetMetaData meta = ShowResultSetMetaData.builder()
-                .addColumn(new Column(procedure.getName(), TypeFactory.createVarcharType(65533)))
-                .build();
-        List<String> row = new ArrayList<>();
-        row.add(result.getText());
-        return new ShowResultSet(meta, ImmutableList.of(row));
+        return toResultSet(procedure.getName(), result);
+    }
+
+    /** What a procedure or an anonymous block returned: a value, or a table for RETURN TABLE(...). */
+    static final class Result {
+        final ScriptValue value;
+        final QueryResult table;
+
+        Result(ScriptValue value, QueryResult table) {
+            this.value = value;
+            this.table = table;
+        }
+    }
+
+    /** A value as one row of one column named {@code name}; a table as its rows (all columns as VARCHAR). */
+    private static ShowResultSet toResultSet(String name, Result result) {
+        ShowResultSetMetaData.Builder meta = ShowResultSetMetaData.builder();
+        if (result.table == null) {
+            meta.addColumn(new Column(name, TypeFactory.createVarcharType(65533)));
+            List<String> row = new ArrayList<>();
+            row.add(result.value.getText());
+            return new ShowResultSet(meta.build(), ImmutableList.of(row));
+        }
+        for (String column : result.table.getColumns()) {
+            meta.addColumn(new Column(column, TypeFactory.createVarcharType(65533)));
+        }
+        return new ShowResultSet(meta.build(), result.table.getRows());
     }
 
     /** {@code EXECUTE IMMEDIATE}: runs an anonymous block as the current user. */
@@ -271,30 +306,27 @@ public final class ProcedureExecutor {
             throw new SemanticException(e.describe());
         }
         ConnectContext ctx = newSession(caller, "anonymous block");
-        ScriptValue result;
+        Result result;
         try {
             ctx.setThreadLocalInfo();
             StarRocksScriptSession session = new StarRocksScriptSession(ctx, "anonymous block", 1);
-            result = new ScriptInterpreter(session).run(block, new LinkedHashMap<>());
+            ScriptInterpreter interpreter = new ScriptInterpreter(session);
+            ScriptValue value = interpreter.run(block, new LinkedHashMap<>());
+            result = new Result(value, interpreter.getReturnedTable());
         } catch (ScriptException e) {
             throw new SemanticException(e.describe());
         } finally {
             caller.setThreadLocalInfo();
         }
-        ShowResultSetMetaData meta = ShowResultSetMetaData.builder()
-                .addColumn(new Column("anonymous block", TypeFactory.createVarcharType(65533)))
-                .build();
-        List<String> row = new ArrayList<>();
-        row.add(result.getText());
-        return new ShowResultSet(meta, ImmutableList.of(row));
+        return toResultSet("anonymous block", result);
     }
 
     /**
      * Runs {@code procedure} with arguments given as SQL ({@code argumentNames} null for positional arguments) and
-     * returns its value cast to its return type. Errors leave as {@link ScriptException}, so a calling script can
-     * catch them.
+     * returns its value cast to its return type, or its table for RETURNS TABLE. Errors leave as
+     * {@link ScriptException}, so a calling script can catch them.
      */
-    static ScriptValue invoke(StoredProcedure procedure, List<String> argumentSqls, List<String> argumentNames,
+    static Result invoke(StoredProcedure procedure, List<String> argumentSqls, List<String> argumentNames,
                               ConnectContext caller, int depth) {
         if (depth > MAX_CALL_DEPTH) {
             throw new ScriptException(ScriptException.STATEMENT_ERROR, ScriptException.STATEMENT_ERROR_CODE,
@@ -324,7 +356,21 @@ public final class ProcedureExecutor {
                 String sql = ordered.get(i) != null ? ordered.get(i) : p.getDefaultSql();
                 parameters.put(p.getName(), castArgument(session, sql, p));
             }
-            ScriptValue result = new ScriptInterpreter(session).run(block, parameters);
+            ScriptInterpreter interpreter = new ScriptInterpreter(session);
+            ScriptValue result = interpreter.run(block, parameters);
+            QueryResult table = interpreter.getReturnedTable();
+            if (procedure.returnsTable()) {
+                QueryResult conformed = conformTable(procedure, table);
+                LOG.info("Procedure {}.{} called by {} returned {} rows in {} ms", db.getFullName(),
+                        procedure.getName(), caller.getQualifiedUser(), conformed.getRows().size(),
+                        System.currentTimeMillis() - start);
+                return new Result(ScriptValue.nullOf(null), conformed);
+            }
+            if (table != null) {
+                throw new ScriptException(ScriptException.STATEMENT_ERROR, ScriptException.STATEMENT_ERROR_CODE,
+                        "Procedure " + procedure.getName() + " returned a table but RETURNS "
+                                + procedure.getReturnDisplay(), 0);
+            }
             if (!result.isNull()) {
                 result = new ScriptValue(procedure.getReturnTypeSql(), session.evaluate(
                         "CAST(" + result.toSqlLiteral() + " AS " + procedure.getReturnTypeSql() + ")").getText());
@@ -335,7 +381,7 @@ public final class ProcedureExecutor {
             }
             LOG.info("Procedure {}.{} called by {} finished in {} ms", db.getFullName(), procedure.getName(),
                     caller.getQualifiedUser(), System.currentTimeMillis() - start);
-            return result;
+            return new Result(result, null);
         } catch (ScriptException e) {
             LOG.info("Procedure {}.{} called by {} failed: {}", db.getFullName(), procedure.getName(),
                     caller.getQualifiedUser(), e.describe());
@@ -347,6 +393,30 @@ public final class ProcedureExecutor {
                 ConnectContext.remove();
             }
         }
+    }
+
+    /** The table a RETURNS TABLE procedure returned, with the declared column names. */
+    private static QueryResult conformTable(StoredProcedure procedure, QueryResult table) {
+        if (table == null) {
+            throw new ScriptException(ScriptException.STATEMENT_ERROR, ScriptException.STATEMENT_ERROR_CODE,
+                    "Procedure " + procedure.getName() + " RETURNS TABLE but did not RETURN TABLE(...)", 0);
+        }
+        List<StoredProcedure.Parameter> declared = procedure.getReturnColumns();
+        if (declared.isEmpty()) {
+            return table;
+        }
+        if (declared.size() != table.getColumns().size()) {
+            throw new ScriptException(ScriptException.STATEMENT_ERROR, ScriptException.STATEMENT_ERROR_CODE,
+                    "Procedure " + procedure.getName() + " returned " + table.getColumns().size()
+                            + " columns but RETURNS " + procedure.getReturnDisplay(), 0);
+        }
+        List<String> names = new ArrayList<>();
+        List<String> types = new ArrayList<>();
+        for (StoredProcedure.Parameter c : declared) {
+            names.add(c.getName());
+            types.add(c.getTypeSql());
+        }
+        return new QueryResult(names, types, table.getRows());
     }
 
     private static ScriptValue castArgument(StarRocksScriptSession session, String sql, StoredProcedure.Parameter p) {

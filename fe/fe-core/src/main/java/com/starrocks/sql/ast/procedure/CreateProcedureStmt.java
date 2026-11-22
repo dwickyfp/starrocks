@@ -58,6 +58,8 @@ public class CreateProcedureStmt extends DdlStmt {
     private final boolean ifNotExists;
     private final List<Parameter> parameters;
     private final String returnTypeSql;
+    // RETURNS TABLE (...): its columns, otherwise null
+    private final List<Parameter> returnColumns;
     private final boolean returnNotNull;
     private final String language;
     private final boolean executeAsCaller;
@@ -65,14 +67,15 @@ public class CreateProcedureStmt extends DdlStmt {
     private final String body;
 
     public CreateProcedureStmt(QualifiedName name, boolean orReplace, boolean ifNotExists, List<Parameter> parameters,
-                               String returnTypeSql, boolean returnNotNull, String language, boolean executeAsCaller,
-                               String comment, String body, NodePosition pos) {
+                               String returnTypeSql, List<Parameter> returnColumns, boolean returnNotNull,
+                               String language, boolean executeAsCaller, String comment, String body, NodePosition pos) {
         super(pos);
         this.name = name;
         this.orReplace = orReplace;
         this.ifNotExists = ifNotExists;
         this.parameters = parameters;
         this.returnTypeSql = returnTypeSql;
+        this.returnColumns = returnColumns;
         this.returnNotNull = returnNotNull;
         this.language = language;
         this.executeAsCaller = executeAsCaller;
@@ -98,6 +101,10 @@ public class CreateProcedureStmt extends DdlStmt {
 
     public String getReturnTypeSql() {
         return returnTypeSql;
+    }
+
+    public List<Parameter> getReturnColumns() {
+        return returnColumns;
     }
 
     public boolean isReturnNotNull() {
