@@ -2559,12 +2559,13 @@ callProcedureStatement
     ;
 
 // Snowflake style stored procedure, with a Snowflake Scripting body:
-// CREATE [OR REPLACE] PROCEDURE name(arg type [DEFAULT expr], ...) RETURNS type LANGUAGE SQL
-//   [EXECUTE AS OWNER | CALLER] [COMMENT 'text'] AS $$ ... $$
+// CREATE [OR REPLACE] PROCEDURE name(arg type [DEFAULT expr], ...) RETURNS type | TABLE (col type, ...)
+//   LANGUAGE SQL [EXECUTE AS OWNER | CALLER] [COMMENT 'text'] AS $$ ... $$
 createProcedureStatement
     : CREATE (OR REPLACE)? PROCEDURE (IF NOT EXISTS)? qualifiedName
         '(' (procedureParameter (',' procedureParameter)*)? ')'
-        RETURNS returnType=type (retNotNull=NOT NULL)?
+        RETURNS (returnTable=TABLE '(' (procedureReturnColumn (',' procedureReturnColumn)*)? ')'
+            | returnType=type (retNotNull=NOT NULL)?)
         LANGUAGE (SQL | language=identifier)
         (EXECUTE AS (OWNER | CALLER))?
         (COMMENT procedureComment=string)?
@@ -2573,6 +2574,10 @@ createProcedureStatement
 
 procedureParameter
     : identifier type (DEFAULT expression)?
+    ;
+
+procedureReturnColumn
+    : identifier type
     ;
 
 dropProcedureStatement

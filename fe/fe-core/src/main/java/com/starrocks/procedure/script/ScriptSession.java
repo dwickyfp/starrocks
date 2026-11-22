@@ -35,6 +35,9 @@ public interface ScriptSession {
     /** Runs the stored procedure {@code nameParts} with the given arguments and returns its value. */
     ScriptValue call(List<String> nameParts, List<ScriptValue> arguments);
 
+    /** Runs the RETURNS TABLE procedure {@code nameParts} with the given arguments and returns its table. */
+    QueryResult callTable(List<String> nameParts, List<ScriptValue> arguments);
+
     /** Rolls back a transaction the script opened and did not finish. */
     void rollbackOpenTransaction();
 }

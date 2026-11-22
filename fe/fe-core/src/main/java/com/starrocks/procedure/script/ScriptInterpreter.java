@@ -45,6 +45,7 @@ public final class ScriptInterpreter {
     private final ScriptSession session;
     private final Deque<ScriptException> caught = new ArrayDeque<>();
     private long steps = 0;
+    private QueryResult returnedTable;
 
     public ScriptInterpreter(ScriptSession session) {
         this.session = session;
@@ -65,6 +66,11 @@ public final class ScriptInterpreter {
     /** A cursor loop's row: its columns by lower-case name. */
     private static final class Row {
         final Map<String, ScriptValue> columns = new LinkedHashMap<>();
+    }
+
+    /** A RESULTSET variable: the rows its source returned when it was assigned, null before that. */
+    private static final class ResultSetVar {
+        QueryResult result;
     }
 
     private static final class Cursor {
@@ -123,9 +129,11 @@ public final class ScriptInterpreter {
 
     private static final class ReturnSignal extends Signal {
         final ScriptValue value;
+        final QueryResult table;
 
-        ReturnSignal(ScriptValue value) {
+        ReturnSignal(ScriptValue value, QueryResult table) {
             this.value = value;
+            this.table = table;
         }
     }
 
@@ -157,6 +165,7 @@ public final class ScriptInterpreter {
             runBlock(block, root);
             return ScriptValue.nullOf(null);
         } catch (ReturnSignal r) {
+            returnedTable = r.table;
             return r.value;
         } catch (JumpSignal j) {
             throw new ScriptException(ScriptException.STATEMENT_ERROR, ScriptException.STATEMENT_ERROR_CODE,
@@ -165,6 +174,11 @@ public final class ScriptInterpreter {
         } finally {
             session.rollbackOpenTransaction();
         }
+    }
+
+    /** The table of the last run's RETURN TABLE(...), or null when it returned a value. */
+    public QueryResult getReturnedTable() {
+        return returnedTable;
     }
 
     private void runBlock(ScriptNode.Block block, Scope outer) {
@@ -214,6 +228,8 @@ public final class ScriptInterpreter {
             scope.put(v.name, new Variable(v.typeSql != null ? v.typeSql : value.getType(), value));
         } else if (declaration instanceof ScriptNode.CursorDecl c) {
             scope.put(c.name, new Cursor(c.query));
+        } else if (declaration instanceof ScriptNode.ResultSetDecl r) {
+            declareResultSet(r, scope);
         } else if (declaration instanceof ScriptNode.ExceptionDecl e) {
             int code = e.code == null ? ScriptException.USER_EXCEPTION_CODE : e.code;
             String message = e.message == null ? e.name : e.message;
@@ -235,6 +251,8 @@ public final class ScriptInterpreter {
             assign(a, scope);
         } else if (node instanceof ScriptNode.CursorDecl c) {
             scope.put(c.name, new Cursor(c.query));
+        } else if (node instanceof ScriptNode.ResultSetDecl r) {
+            declareResultSet(r, scope);
         } else if (node instanceof ScriptNode.If i) {
             for (int k = 0; k < i.conditions.size(); k++) {
                 if (evaluate(i.conditions.get(k), "BOOLEAN", scope).isTrue()) {
@@ -252,7 +270,9 @@ public final class ScriptInterpreter {
         } else if (node instanceof ScriptNode.Jump j) {
             throw new JumpSignal(j.isContinue, j.label, j.getLine());
         } else if (node instanceof ScriptNode.Return r) {
-            throw new ReturnSignal(r.value == null ? ScriptValue.nullOf(null) : evaluate(r.value, null, scope));
+            throw new ReturnSignal(r.value == null ? ScriptValue.nullOf(null) : evaluate(r.value, null, scope), null);
+        } else if (node instanceof ScriptNode.ReturnTable r) {
+            throw new ReturnSignal(ScriptValue.nullOf(null), resultSetOf(r.source, scope, r.getLine()));
         } else if (node instanceof ScriptNode.Raise r) {
             raise(r, scope);
         } else if (node instanceof ScriptNode.CursorOp op) {
@@ -267,11 +287,7 @@ public final class ScriptInterpreter {
                 setVariable(c.into, result, scope, c.getLine());
             }
         } else if (node instanceof ScriptNode.ExecuteImmediate e) {
-            ScriptValue statement = evaluate(e.statement, "VARCHAR", scope);
-            if (statement.isNull()) {
-                throw expressionError("EXECUTE IMMEDIATE got NULL", e.getLine());
-            }
-            ScriptNode.Block nested = ScriptParser.parse(statement.getText());
+            ScriptNode.Block nested = ScriptParser.parse(immediateSql(e, scope));
             // The nested script has its own variables; only its effects are visible here, not its RETURN.
             try {
                 runBlock(nested, rootOf(scope));
@@ -310,10 +326,128 @@ public final class ScriptInterpreter {
             return;
         }
         Object entry = scope.find(a.name);
+        if (entry instanceof ResultSetVar rs) {
+            rs.result = resultSetOf(a.value, scope, a.getLine());
+            return;
+        }
         if (!(entry instanceof Variable v)) {
             throw expressionError("Undeclared variable '" + a.name + "'", a.getLine());
         }
         v.value = evaluate(a.value, v.type, scope);
+    }
+
+    // ------------------------------------------------ result sets -------------------------------------------------
+
+    private void declareResultSet(ScriptNode.ResultSetDecl r, Scope scope) {
+        ResultSetVar rs = new ResultSetVar();
+        if (r.source != null) {
+            rs.result = resultSetOf(r.source, scope, r.getLine());
+        }
+        scope.put(r.name, rs);
+    }
+
+    /**
+     * Runs the source of a RESULTSET or of RETURN TABLE(...): a RESULTSET variable, {@code (SELECT ...)},
+     * {@code (EXECUTE IMMEDIATE expr [USING (...)])} or {@code (CALL p(...))} of a RETURNS TABLE procedure.
+     */
+    private QueryResult resultSetOf(Text source, Scope scope, int line) {
+        Text inner = unwrap(source);
+        List<ScriptToken> tokens = inner.getTokens();
+        ScriptToken first = tokens.get(0);
+        if (tokens.size() == 1 && isName(first) && scope.find(first.getText()) instanceof ResultSetVar rs) {
+            if (rs.result == null) {
+                throw statementError("RESULTSET '" + first.getText() + "' has not been assigned", line);
+            }
+            return rs.result;
+        }
+        if (first.is("SELECT") || first.is("WITH")) {
+            return runQuery(bind(inner, scope, false), line);
+        }
+        if (first.is("CALL") || first.is("EXECUTE")) {
+            List<ScriptNode> statements = ScriptParser.parse(inner.getSql()).statements;
+            ScriptNode statement = statements.size() == 1 ? statements.get(0) : null;
+            if (statement instanceof ScriptNode.Call c) {
+                if (c.into != null) {
+                    throw statementError("CALL ... INTO does not go with a RESULTSET", line);
+                }
+                List<ScriptValue> arguments = new ArrayList<>();
+                for (Text argument : c.arguments) {
+                    arguments.add(evaluate(argument, null, scope));
+                }
+                return session.callTable(c.nameParts, arguments);
+            }
+            if (statement instanceof ScriptNode.ExecuteImmediate e) {
+                return runQuery(immediateSql(e, scope), line);
+            }
+        }
+        throw statementError("A RESULTSET takes a RESULTSET variable, (SELECT ...), (EXECUTE IMMEDIATE ...) or "
+                + "(CALL procedure(...)), got: " + inner.getSql(), line);
+    }
+
+    /** {@code text} without one pair of parentheses around all of it. */
+    private static Text unwrap(Text text) {
+        List<ScriptToken> tokens = text.getTokens();
+        if (tokens.size() < 3 || !tokens.get(0).isSymbol("(") || !tokens.get(tokens.size() - 1).isSymbol(")")) {
+            return text;
+        }
+        int depth = 0;
+        for (int i = 0; i < tokens.size() - 1; i++) {
+            if (tokens.get(i).isSymbol("(")) {
+                depth++;
+            } else if (tokens.get(i).isSymbol(")")) {
+                depth--;
+            }
+            if (depth == 0) {
+                // the first parenthesis closes before the end: (a) + (b)
+                return text;
+            }
+        }
+        return new Text(text.getSource(), tokens.subList(1, tokens.size() - 1));
+    }
+
+    /** The statement of EXECUTE IMMEDIATE, with its {@code ?} placeholders replaced by the USING variables. */
+    private String immediateSql(ScriptNode.ExecuteImmediate e, Scope scope) {
+        ScriptValue statement = evaluate(e.statement, "VARCHAR", scope);
+        if (statement.isNull()) {
+            throw expressionError("EXECUTE IMMEDIATE got NULL", e.getLine());
+        }
+        List<String> literals = new ArrayList<>();
+        for (String name : e.using) {
+            if (!(scope.find(name) instanceof Variable v)) {
+                throw expressionError("Undeclared variable '" + name + "' in USING", e.getLine());
+            }
+            literals.add(v.value.toSqlLiteral());
+        }
+        try {
+            return bindPlaceholders(statement.getText(), literals);
+        } catch (IllegalArgumentException ex) {
+            throw expressionError(ex.getMessage(), e.getLine());
+        }
+    }
+
+    /** {@code sql} with its {@code ?} placeholders (outside strings and comments) replaced by {@code literals}. */
+    static String bindPlaceholders(String sql, List<String> literals) {
+        if (literals.isEmpty()) {
+            return sql;
+        }
+        StringBuilder bound = new StringBuilder();
+        int last = 0;
+        int used = 0;
+        for (ScriptToken t : ScriptLexer.tokenize(sql)) {
+            if (t.getKind() == ScriptToken.Kind.SYMBOL && t.isSymbol("?")) {
+                if (used == literals.size()) {
+                    throw new IllegalArgumentException("EXECUTE IMMEDIATE has more ? placeholders than the "
+                            + literals.size() + " USING variables");
+                }
+                bound.append(sql, last, t.getStart()).append(literals.get(used++));
+                last = t.getEnd();
+            }
+        }
+        if (used != literals.size()) {
+            throw new IllegalArgumentException("EXECUTE IMMEDIATE has " + used + " ? placeholders for "
+                    + literals.size() + " USING variables");
+        }
+        return bound.append(sql.substring(last)).toString();
     }
 
     private void setVariable(String name, ScriptValue value, Scope scope, int line) {
@@ -376,8 +510,19 @@ public final class ScriptInterpreter {
                 }
             }
         } else if (loop instanceof ScriptNode.ForCursor f) {
-            Cursor cursor = findCursor(f.cursor, scope, f.getLine());
-            open(cursor, scope);
+            Cursor cursor;
+            if (scope.find(f.cursor) instanceof ResultSetVar rs) {
+                // FOR r IN rs: a cursor over the RESULTSET
+                if (rs.result == null) {
+                    throw statementError("RESULTSET '" + f.cursor + "' has not been assigned", f.getLine());
+                }
+                cursor = new Cursor(null);
+                cursor.result = rs.result;
+                cursor.next = 0;
+            } else {
+                cursor = findCursor(f.cursor, scope, f.getLine());
+                open(cursor, scope);
+            }
             try {
                 while (cursor.next < cursor.result.getRows().size()) {
                     Row row = new Row();
@@ -454,7 +599,13 @@ public final class ScriptInterpreter {
     }
 
     private void open(Cursor cursor, Scope scope) {
-        cursor.result = runQuery(bind(cursor.query, scope, false), cursor.query.getLine());
+        List<ScriptToken> tokens = cursor.query.getTokens();
+        if (tokens.size() == 1 && isName(tokens.get(0)) && scope.find(tokens.get(0).getText()) instanceof ResultSetVar) {
+            // CURSOR FOR rs: the rows of a RESULTSET
+            cursor.result = resultSetOf(cursor.query, scope, cursor.query.getLine());
+        } else {
+            cursor.result = runQuery(bind(cursor.query, scope, false), cursor.query.getLine());
+        }
         cursor.next = 0;
     }
 

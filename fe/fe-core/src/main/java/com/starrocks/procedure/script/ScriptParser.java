@@ -145,8 +145,13 @@ public final class ScriptParser {
             expectSymbol(";");
             return new ScriptNode.ExceptionDecl(line, name, code, message);
         }
-        if (peek().is("RESULTSET")) {
-            throw error("RESULTSET variables are not supported, use a CURSOR");
+        if (accept("RESULTSET")) {
+            Text source = null;
+            if (accept("DEFAULT") || acceptSymbol(":=")) {
+                source = collect(Set.of(), true);
+            }
+            expectSymbol(";");
+            return new ScriptNode.ResultSetDecl(line, name, source);
         }
         String typeSql = typeUntilValue();
         Text value = null;
@@ -223,8 +228,13 @@ public final class ScriptParser {
                 endStatement();
                 return new ScriptNode.CursorDecl(line, name, query);
             }
-            if (peek().is("RESULTSET")) {
-                throw error("RESULTSET variables are not supported, use a CURSOR");
+            if (accept("RESULTSET")) {
+                if (!accept("DEFAULT") && !acceptSymbol(":=")) {
+                    throw error("Expected := or DEFAULT in LET " + name);
+                }
+                Text source = collect(Set.of(), true);
+                endStatement();
+                return new ScriptNode.ResultSetDecl(line, name, source);
             }
             String typeSql = typeUntilValue();
             if (!accept("DEFAULT") && !acceptSymbol(":=")) {
@@ -279,6 +289,12 @@ public final class ScriptParser {
         }
         if (t.is("RETURN")) {
             pos++;
+            if (peek().is("TABLE") && peek(1).isSymbol("(")) {
+                pos++;
+                Text source = collect(Set.of(), true);
+                endStatement();
+                return new ScriptNode.ReturnTable(line, source);
+            }
             Text value = isStatementEnd() ? null : collect(Set.of(), true);
             endStatement();
             return new ScriptNode.Return(line, value);
@@ -315,11 +331,19 @@ public final class ScriptParser {
         if (t.is("EXECUTE") && peek(1).is("IMMEDIATE")) {
             pos += 2;
             Text statement = collect(Set.of("USING"), true);
-            if (peek().is("USING")) {
-                throw error("EXECUTE IMMEDIATE ... USING is not supported, bind variables with :name");
+            List<String> using = new ArrayList<>();
+            if (accept("USING")) {
+                expectSymbol("(");
+                if (!acceptSymbol(")")) {
+                    do {
+                        acceptSymbol(":");
+                        using.add(name());
+                    } while (acceptSymbol(","));
+                    expectSymbol(")");
+                }
             }
             endStatement();
-            return new ScriptNode.ExecuteImmediate(line, statement);
+            return new ScriptNode.ExecuteImmediate(line, statement, using);
         }
         return parseSql();
     }

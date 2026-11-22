@@ -72,6 +72,9 @@ public class StoredProcedure implements Writable {
     private String returnTypeSql;
     @SerializedName("retNotNull")
     private boolean returnNotNull;
+    // RETURNS TABLE (...): its columns (a column-less TABLE () takes those of the returned result); null for a scalar
+    @SerializedName("retTable")
+    private List<Parameter> returnColumns;
     @SerializedName("lang")
     private String language;
     @SerializedName("execAs")
@@ -127,6 +130,27 @@ public class StoredProcedure implements Writable {
 
     public boolean isReturnNotNull() {
         return returnNotNull;
+    }
+
+    public boolean returnsTable() {
+        return returnColumns != null;
+    }
+
+    public List<Parameter> getReturnColumns() {
+        return returnColumns;
+    }
+
+    public void setReturnColumns(List<Parameter> returnColumns) {
+        this.returnColumns = returnColumns;
+    }
+
+    /** The return type as SHOW and DESC print it: {@code INT} or {@code TABLE (id INT, name VARCHAR)}. */
+    public String getReturnDisplay() {
+        if (!returnsTable()) {
+            return displayType(returnTypeSql);
+        }
+        return "TABLE (" + returnColumns.stream().map(c -> c.getName() + " " + displayType(c.getTypeSql()))
+                .collect(Collectors.joining(", ")) + ")";
     }
 
     public String getLanguage() {

@@ -241,16 +241,41 @@ public class StarRocksScriptSession implements ScriptSession {
 
     @Override
     public ScriptValue call(List<String> nameParts, List<ScriptValue> arguments) {
-        List<String> argumentSqls = new ArrayList<>();
-        for (ScriptValue argument : arguments) {
-            argumentSqls.add(argument.toSqlLiteral());
+        StoredProcedure procedure = resolve(nameParts);
+        if (procedure.returnsTable()) {
+            throw new ScriptException(ScriptException.STATEMENT_ERROR, ScriptException.STATEMENT_ERROR_CODE,
+                    "Procedure " + procedure.getName() + " RETURNS TABLE: read it with LET rs RESULTSET := (CALL "
+                            + procedure.getName() + "(...))", 0);
         }
+        return ProcedureExecutor.invoke(procedure, literals(arguments), null, ctx, depth + 1).value;
+    }
+
+    @Override
+    public QueryResult callTable(List<String> nameParts, List<ScriptValue> arguments) {
+        StoredProcedure procedure = resolve(nameParts);
+        if (!procedure.returnsTable()) {
+            throw new ScriptException(ScriptException.STATEMENT_ERROR, ScriptException.STATEMENT_ERROR_CODE,
+                    "Procedure " + procedure.getName() + " RETURNS " + procedure.getReturnDisplay()
+                            + ", not a TABLE", 0);
+        }
+        return ProcedureExecutor.invoke(procedure, literals(arguments), null, ctx, depth + 1).table;
+    }
+
+    private StoredProcedure resolve(List<String> nameParts) {
         StoredProcedure procedure = ProcedureExecutor.resolve(nameParts, ctx);
         if (procedure == null) {
             throw new ScriptException(ScriptException.STATEMENT_ERROR, ScriptException.STATEMENT_ERROR_CODE,
                     "Procedure " + String.join(".", nameParts) + " does not exist", 0);
         }
-        return ProcedureExecutor.invoke(procedure, argumentSqls, null, ctx, depth + 1);
+        return procedure;
+    }
+
+    private static List<String> literals(List<ScriptValue> arguments) {
+        List<String> sqls = new ArrayList<>();
+        for (ScriptValue argument : arguments) {
+            sqls.add(argument.toSqlLiteral());
+        }
+        return sqls;
     }
 
     @Override

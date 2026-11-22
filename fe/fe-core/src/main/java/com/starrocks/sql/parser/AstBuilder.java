@@ -1910,7 +1910,18 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             String defaultSql = p.expression() == null ? null : extractRawText(p.expression());
             parameters.add(new CreateProcedureStmt.Parameter(name, typeSql, defaultSql));
         }
-        String returnTypeSql = TypeParser.getType(context.returnType).toSql();
+        String returnTypeSql = null;
+        List<CreateProcedureStmt.Parameter> returnColumns = null;
+        if (context.returnTable != null) {
+            returnColumns = new ArrayList<>();
+            for (com.starrocks.sql.parser.StarRocksParser.ProcedureReturnColumnContext c
+                    : context.procedureReturnColumn()) {
+                returnColumns.add(new CreateProcedureStmt.Parameter(((Identifier) visit(c.identifier())).getValue(),
+                        TypeParser.getType(c.type()).toSql(), null));
+            }
+        } else {
+            returnTypeSql = TypeParser.getType(context.returnType).toSql();
+        }
         String language = context.SQL() != null ? "SQL" : ((Identifier) visit(context.language)).getValue();
         boolean executeAsCaller = context.CALLER() != null;
         String comment = context.procedureComment == null ? null
@@ -1923,7 +1934,8 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             body = ((StringLiteral) visit(context.body)).getValue();
         }
         return new CreateProcedureStmt(getQualifiedName(context.qualifiedName()), orReplace, ifNotExists, parameters,
-                returnTypeSql, context.retNotNull != null, language, executeAsCaller, comment, body, createPos(context));
+                returnTypeSql, returnColumns, context.retNotNull != null, language, executeAsCaller, comment, body,
+                createPos(context));
     }
 
     @Override

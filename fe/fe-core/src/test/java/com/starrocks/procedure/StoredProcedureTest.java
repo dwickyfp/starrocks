@@ -313,6 +313,73 @@ public class StoredProcedureTest {
     }
 
     @Test
+    public void testExecuteImmediateUsing() throws Exception {
+        Assertions.assertEquals("42", call("EXECUTE IMMEDIATE $$\n" +
+                "DECLARE\n" +
+                "  a INT DEFAULT 6;\n" +
+                "  b VARCHAR DEFAULT 'it''s';\n" +
+                "  r INT;\n" +
+                "BEGIN\n" +
+                "  LET q VARCHAR := 'BEGIN IF (? = ''it''''s'') THEN RETURN ? * 7; END IF; RETURN 0; END';\n" +
+                "  EXECUTE IMMEDIATE :q USING (b, :a);\n" +
+                "  RETURN 42;\n" +
+                "END;\n" +
+                "$$"));
+        Assertions.assertEquals("42", call("EXECUTE IMMEDIATE $$ DECLARE a INT DEFAULT 6; r INT; BEGIN " +
+                "EXECUTE IMMEDIATE 'DECLARE bad EXCEPTION (-20001, ''bad''); " +
+                "BEGIN IF (? * 7 <> 42) THEN RAISE bad; END IF; END' USING (a); " +
+                "RETURN 42; END $$"));
+        Assertions.assertTrue(error("EXECUTE IMMEDIATE $$ DECLARE a INT DEFAULT 1; BEGIN " +
+                "EXECUTE IMMEDIATE 'BEGIN RETURN ? + ?; END' USING (a); END $$").contains("placeholders"));
+        Assertions.assertTrue(error("EXECUTE IMMEDIATE $$ BEGIN " +
+                "EXECUTE IMMEDIATE 'BEGIN RETURN ?; END' USING (nope); END $$").contains("nope"));
+    }
+
+    @Test
+    public void testReturnTable() throws Exception {
+        run("CREATE PROCEDURE pairs(n INT) RETURNS TABLE (k INT, v VARCHAR) LANGUAGE SQL AS $$\n" +
+                "DECLARE\n" +
+                "  rs RESULTSET DEFAULT (SELECT :n AS a, 'x' AS b);\n" +
+                "BEGIN\n" +
+                "  RETURN TABLE(rs);\n" +
+                "END;\n" +
+                "$$");
+        ShowResultSet result = run("CALL pairs(7)");
+        Assertions.assertEquals(2, result.getMetaData().getColumnCount());
+        Assertions.assertEquals("k", result.getMetaData().getColumn(0).getName());
+        Assertions.assertEquals("v", result.getMetaData().getColumn(1).getName());
+        // the rows of a SELECT need a BE (see the e2e test), the UT cluster has none
+        String signature = run("SHOW PROCEDURES LIKE 'pairs'").getResultRows().get(0).get(2);
+        Assertions.assertTrue(signature.contains("RETURN TABLE (k INT, v VARCHAR)"), signature);
+
+        // a RESULTSET from CALL, iterated with FOR
+        Assertions.assertEquals("done", call("EXECUTE IMMEDIATE $$\n" +
+                "DECLARE\n" +
+                "  out VARCHAR DEFAULT '';\n" +
+                "BEGIN\n" +
+                "  LET rs RESULTSET := (CALL pairs(7));\n" +
+                "  FOR r IN rs DO\n" +
+                "    out := out || r.k || r.v;\n" +
+                "  END FOR;\n" +
+                "  RETURN 'done';\n" +
+                "END;\n" +
+                "$$"));
+        // RETURN TABLE from an anonymous block
+        result = run("EXECUTE IMMEDIATE $$ BEGIN RETURN TABLE(SELECT 1 AS one, 2 AS two); END $$");
+        Assertions.assertEquals("two", result.getMetaData().getColumn(1).getName());
+
+        Assertions.assertTrue(error("EXECUTE IMMEDIATE $$ DECLARE x INT; BEGIN CALL pairs(1) INTO :x; END $$")
+                .contains("RESULTSET"));
+        run("CREATE PROCEDURE one_col() RETURNS TABLE (k INT) LANGUAGE SQL AS " +
+                "'BEGIN RETURN TABLE(SELECT 1 AS a, 2 AS b); END'");
+        Assertions.assertTrue(error("CALL one_col()").contains("column"));
+        run("CREATE PROCEDURE no_table() RETURNS TABLE (k INT) LANGUAGE SQL AS 'BEGIN RETURN 1; END'");
+        Assertions.assertTrue(error("CALL no_table()").contains("TABLE"));
+        Assertions.assertTrue(error("EXECUTE IMMEDIATE $$ DECLARE rs RESULTSET; BEGIN RETURN TABLE(rs); END $$")
+                .contains("not been assigned"));
+    }
+
+    @Test
     public void testInvalidBodiesAreRejectedAtCreate() {
         Assertions.assertTrue(error("CREATE PROCEDURE bad() RETURNS INT LANGUAGE SQL AS $$\n" +
                 "BEGIN\n" +
