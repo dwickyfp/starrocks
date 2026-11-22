@@ -48,6 +48,8 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.policy.SecurityPolicyStmt;
+import com.starrocks.sql.ast.policy.ShowSecurityPoliciesStmt;
 import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
 import com.starrocks.sql.ast.procedure.DescProcedureStmt;
 import com.starrocks.sql.ast.procedure.DropProcedureStmt;
@@ -558,6 +560,16 @@ public interface AstVisitorExtendInterface<R, C> extends AstVisitor<R, C> {
     }
 
     default R visitDescTableStreamStatement(DescTableStreamStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    // ---------------------------------------- masking and row access policies -----------------------------------
+
+    default R visitSecurityPolicyStatement(SecurityPolicyStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitShowSecurityPoliciesStatement(ShowSecurityPoliciesStmt statement, C context) {
         return visitShowStatement(statement, context);
     }
 

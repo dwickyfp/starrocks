@@ -903,7 +903,12 @@ public class QueryAnalyzer {
                 Table table = tableRelation.getTable();
                 String catalogName = resolveTableName.getCatalog();
                 if (tableRelation.getChanges() != null) {
-                    SubqueryRelation changesRelation = new SubqueryRelation(resolveChanges(tableRelation));
+                    QueryStatement changesQuery = resolveChanges(tableRelation);
+                    if (tableRelation.isNeedRewrittenByPolicy()) {
+                        // the changes are of the rows the policies of the table let through, as they show them
+                        SecurityPolicyRewriteRule.markRelationsForRewrite(changesQuery);
+                    }
+                    SubqueryRelation changesRelation = new SubqueryRelation(changesQuery);
                     changesRelation.setAlias(tableRelation.getAlias() != null ? tableRelation.getAlias()
                             : new TableName(null, tableRelation.getName().getTbl()));
                     return changesRelation;
@@ -911,6 +916,9 @@ public class QueryAnalyzer {
                 if (table == null) {
                     QueryStatement streamQuery = resolveStream(tableRelation);
                     if (streamQuery != null) {
+                        if (tableRelation.isNeedRewrittenByPolicy()) {
+                            SecurityPolicyRewriteRule.markRelationsForRewrite(streamQuery);
+                        }
                         SubqueryRelation streamRelation = new SubqueryRelation(streamQuery);
                         streamRelation.setAlias(tableRelation.getAlias() != null ? tableRelation.getAlias()
                                 : resolveTableName);

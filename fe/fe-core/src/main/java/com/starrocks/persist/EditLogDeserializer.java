@@ -43,6 +43,9 @@ import com.starrocks.load.streamload.StreamLoadMultiStmtTask;
 import com.starrocks.load.streamload.StreamLoadTask;
 import com.starrocks.persist.gson.GsonUtils;
 import com.starrocks.plugin.PluginInfo;
+import com.starrocks.policy.DropSecurityPolicyLog;
+import com.starrocks.policy.SecurityPolicy;
+import com.starrocks.policy.TablePolicies;
 import com.starrocks.procedure.DropProcedureLog;
 import com.starrocks.procedure.StoredProcedure;
 import com.starrocks.scheduler.Task;
@@ -283,6 +286,9 @@ public class EditLogDeserializer {
             .put(OperationType.OP_DROP_PROCEDURE, DropProcedureLog.class)
             .put(OperationType.OP_CREATE_TABLE_STREAM, TableStream.class)
             .put(OperationType.OP_DROP_TABLE_STREAM, DropTableStreamLog.class)
+            .put(OperationType.OP_PUT_SECURITY_POLICY, SecurityPolicy.class)
+            .put(OperationType.OP_DROP_SECURITY_POLICY, DropSecurityPolicyLog.class)
+            .put(OperationType.OP_SET_TABLE_POLICIES, TablePolicies.class)
             .put(OperationType.OP_CLUSTER_SNAPSHOT_LOG, ClusterSnapshotLog.class)
             .put(OperationType.OP_ADD_SQL_QUERY_BLACK_LIST, SqlBlackListPersistInfo.class)
             .put(OperationType.OP_DELETE_SQL_QUERY_BLACK_LIST, DeleteSqlBlackLists.class)

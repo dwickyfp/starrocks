@@ -59,11 +59,17 @@ statement
     | descStreamStatement
     | descTableStatement
     | createStreamStatement
+    | createSecurityPolicyStatement
+    | alterSecurityPolicyStatement
+    | dropSecurityPolicyStatement
+    | showSecurityPoliciesStatement
+    | descSecurityPolicyStatement
     | dropStreamStatement
     | showStreamsStatement
     | showTableStatusStatement
     | showColumnStatement
     | refreshTableStatement
+    | alterTablePolicyStatement
     | alterTableStatement
     | cancelAlterTableStatement
     | showAlterStatement
@@ -661,6 +667,48 @@ showAlterStatement
 
 descTableStatement
     : (DESC | DESCRIBE) ((table=qualifiedName ALL?) | (FILES propertyList))
+    ;
+
+// Snowflake style masking and row access policies, and their attachment to the columns and rows of tables
+createSecurityPolicyStatement
+    : CREATE (OR REPLACE)? policyKind POLICY (IF NOT EXISTS)? qualifiedName
+        AS '(' policyArg (',' policyArg)* ')' RETURNS type ARROW body=expression (COMMENT policyComment=string)?
+    ;
+
+policyKind
+    : MASKING
+    | ROW ACCESS
+    ;
+
+policyArg
+    : identifier type
+    ;
+
+alterSecurityPolicyStatement
+    : ALTER policyKind POLICY (IF EXISTS)? qualifiedName
+        (SET BODY ARROW body=expression | SET COMMENT EQ? policyComment=string | RENAME TO newName=identifier)
+    ;
+
+dropSecurityPolicyStatement
+    : DROP policyKind POLICY (IF EXISTS)? qualifiedName
+    ;
+
+showSecurityPoliciesStatement
+    : SHOW (MASKING | ROW ACCESS) POLICIES ((FROM | IN) db=qualifiedName)? (LIKE pattern=string)?
+    ;
+
+descSecurityPolicyStatement
+    : (DESC | DESCRIBE) policyKind POLICY qualifiedName
+    ;
+
+alterTablePolicyStatement
+    : ALTER TABLE table=qualifiedName MODIFY COLUMN column=identifier SET MASKING POLICY policy=qualifiedName
+        (USING '(' identifier (',' identifier)* ')')? FORCE?                                  #setMaskingPolicy
+    | ALTER TABLE table=qualifiedName MODIFY COLUMN column=identifier UNSET MASKING POLICY   #unsetMaskingPolicy
+    | ALTER TABLE table=qualifiedName ADD ROW ACCESS POLICY policy=qualifiedName
+        ON '(' identifier (',' identifier)* ')'                                               #addRowAccessPolicy
+    | ALTER TABLE table=qualifiedName DROP ROW ACCESS POLICY policy=qualifiedName           #dropRowAccessPolicy
+    | ALTER TABLE table=qualifiedName DROP ALL ROW ACCESS POLICIES                          #dropAllRowAccessPolicies
     ;
 
 // Snowflake style streams: the changes of a native table since an offset

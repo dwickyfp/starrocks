@@ -23,6 +23,7 @@ import com.starrocks.catalog.MaterializedView;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Table;
 import com.starrocks.catalog.TableName;
+import com.starrocks.policy.SecurityPolicyMgr;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.sql.analyzer.SelectAnalyzer.RewriteAliasVisitor;
 import com.starrocks.sql.ast.ColumnAssignment;
@@ -414,8 +415,9 @@ public class UpdateAnalyzer {
                 relation = new JoinRelation(null, relation, r, null, false);
             }
         }
-        SelectRelation selectRelation =
-                new SelectRelation(selectList, relation, updateStmt.getWherePredicate(), null, null);
+        SelectRelation selectRelation = new SelectRelation(selectList, relation,
+                SecurityPolicyMgr.andTargetRowAccess(session, table, tableName, updateStmt.getWherePredicate()),
+                null, null);
         if (updateStmt.getCommonTableExpressions() != null) {
             updateStmt.getCommonTableExpressions().forEach(selectRelation::addCTERelation);
         }

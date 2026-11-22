@@ -536,6 +536,8 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.policy.SecurityPolicyStmt;
+import com.starrocks.sql.ast.policy.ShowSecurityPoliciesStmt;
 import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
 import com.starrocks.sql.ast.procedure.DescProcedureStmt;
 import com.starrocks.sql.ast.procedure.DropProcedureStmt;
@@ -3116,6 +3118,120 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         String dbName = context.db == null ? null : normalizeName(getQualifiedName(context.db).toString());
         String pattern = context.pattern == null ? null : ((StringLiteral) visit(context.pattern)).getValue();
         return new ShowTableStreamsStmt(dbName, pattern, createPos(context));
+    }
+
+    // ---------------------------------------- masking and row access policies -----------------------------------
+
+    private static SecurityPolicyStmt.Kind policyKind(com.starrocks.sql.parser.StarRocksParser.PolicyKindContext kind) {
+        return kind.MASKING() != null ? SecurityPolicyStmt.Kind.MASKING : SecurityPolicyStmt.Kind.ROW_ACCESS;
+    }
+
+    /** The SQL text of a parse tree, as it was written. */
+    private static String originalText(ParserRuleContext context) {
+        return context.start.getInputStream().getText(
+                new org.antlr.v4.runtime.misc.Interval(context.start.getStartIndex(), context.stop.getStopIndex()));
+    }
+
+    @Override
+    public ParseNode visitCreateSecurityPolicyStatement(
+            com.starrocks.sql.parser.StarRocksParser.CreateSecurityPolicyStatementContext context) {
+        List<SecurityPolicyStmt.Arg> args = new ArrayList<>();
+        for (com.starrocks.sql.parser.StarRocksParser.PolicyArgContext arg : context.policyArg()) {
+            args.add(new SecurityPolicyStmt.Arg(getIdentifierName(arg.identifier()),
+                    TypeParser.getType(arg.type()).toSql()));
+        }
+        String comment = context.policyComment == null ? null
+                : ((StringLiteral) visit(context.policyComment)).getValue();
+        return new SecurityPolicyStmt(SecurityPolicyStmt.Action.CREATE, policyKind(context.policyKind()),
+                getQualifiedName(context.qualifiedName()), context.OR() != null, context.IF() != null, args,
+                TypeParser.getType(context.type()).toSql(), originalText(context.body), comment, null, null, null,
+                null, false, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitAlterSecurityPolicyStatement(
+            com.starrocks.sql.parser.StarRocksParser.AlterSecurityPolicyStatementContext context) {
+        SecurityPolicyStmt.Action action = context.body != null ? SecurityPolicyStmt.Action.SET_BODY
+                : context.policyComment != null ? SecurityPolicyStmt.Action.SET_COMMENT : SecurityPolicyStmt.Action.RENAME;
+        return new SecurityPolicyStmt(action, policyKind(context.policyKind()),
+                getQualifiedName(context.qualifiedName()), false, context.IF() != null, null, null,
+                context.body == null ? null : originalText(context.body),
+                context.policyComment == null ? null : ((StringLiteral) visit(context.policyComment)).getValue(),
+                context.newName == null ? null : getIdentifierName(context.newName), null, null, null, false,
+                createPos(context));
+    }
+
+    @Override
+    public ParseNode visitDropSecurityPolicyStatement(
+            com.starrocks.sql.parser.StarRocksParser.DropSecurityPolicyStatementContext context) {
+        return new SecurityPolicyStmt(SecurityPolicyStmt.Action.DROP, policyKind(context.policyKind()),
+                getQualifiedName(context.qualifiedName()), false, context.IF() != null, null, null, null, null, null,
+                null, null, null, false, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitShowSecurityPoliciesStatement(
+            com.starrocks.sql.parser.StarRocksParser.ShowSecurityPoliciesStatementContext context) {
+        String dbName = context.db == null ? null : normalizeName(getQualifiedName(context.db).toString());
+        String pattern = context.pattern == null ? null : ((StringLiteral) visit(context.pattern)).getValue();
+        return new ShowSecurityPoliciesStmt(context.MASKING() != null ? SecurityPolicyStmt.Kind.MASKING
+                : SecurityPolicyStmt.Kind.ROW_ACCESS, dbName, pattern, null, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitDescSecurityPolicyStatement(
+            com.starrocks.sql.parser.StarRocksParser.DescSecurityPolicyStatementContext context) {
+        return new ShowSecurityPoliciesStmt(policyKind(context.policyKind()), null, null,
+                getQualifiedName(context.qualifiedName()), createPos(context));
+    }
+
+    private SecurityPolicyStmt attachment(SecurityPolicyStmt.Action action, SecurityPolicyStmt.Kind kind,
+                                          com.starrocks.sql.parser.StarRocksParser.QualifiedNameContext policy,
+                                          com.starrocks.sql.parser.StarRocksParser.QualifiedNameContext table,
+                                          com.starrocks.sql.parser.StarRocksParser.IdentifierContext column,
+                                          List<com.starrocks.sql.parser.StarRocksParser.IdentifierContext> columns,
+                                          boolean force, ParserRuleContext context) {
+        return new SecurityPolicyStmt(action, kind, policy == null ? null : getQualifiedName(policy), false, false,
+                null, null, null, null, null, getQualifiedName(table),
+                column == null ? null : getIdentifierName(column),
+                columns == null ? null : columns.stream().map(this::getIdentifierName).collect(toList()), force,
+                createPos(context));
+    }
+
+    @Override
+    public ParseNode visitSetMaskingPolicy(com.starrocks.sql.parser.StarRocksParser.SetMaskingPolicyContext context) {
+        List<com.starrocks.sql.parser.StarRocksParser.IdentifierContext> using = context.USING() == null ? null
+                : context.identifier().subList(1, context.identifier().size());
+        return attachment(SecurityPolicyStmt.Action.SET_MASKING, SecurityPolicyStmt.Kind.MASKING, context.policy,
+                context.table, context.column, using, context.FORCE() != null, context);
+    }
+
+    @Override
+    public ParseNode visitUnsetMaskingPolicy(
+            com.starrocks.sql.parser.StarRocksParser.UnsetMaskingPolicyContext context) {
+        return attachment(SecurityPolicyStmt.Action.UNSET_MASKING, SecurityPolicyStmt.Kind.MASKING, null,
+                context.table, context.column, null, false, context);
+    }
+
+    @Override
+    public ParseNode visitAddRowAccessPolicy(
+            com.starrocks.sql.parser.StarRocksParser.AddRowAccessPolicyContext context) {
+        return attachment(SecurityPolicyStmt.Action.ADD_ROW_ACCESS, SecurityPolicyStmt.Kind.ROW_ACCESS,
+                context.policy, context.table, null, context.identifier(), false, context);
+    }
+
+    @Override
+    public ParseNode visitDropRowAccessPolicy(
+            com.starrocks.sql.parser.StarRocksParser.DropRowAccessPolicyContext context) {
+        return attachment(SecurityPolicyStmt.Action.DROP_ROW_ACCESS, SecurityPolicyStmt.Kind.ROW_ACCESS,
+                context.policy, context.table, null, null, false, context);
+    }
+
+    @Override
+    public ParseNode visitDropAllRowAccessPolicies(
+            com.starrocks.sql.parser.StarRocksParser.DropAllRowAccessPoliciesContext context) {
+        return attachment(SecurityPolicyStmt.Action.DROP_ALL_ROW_ACCESS, SecurityPolicyStmt.Kind.ROW_ACCESS, null,
+                context.table, null, null, false, context);
     }
 
     @Override

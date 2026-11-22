@@ -54,6 +54,7 @@ import com.starrocks.connector.iceberg.IcebergTableOperation;
 import com.starrocks.connector.iceberg.procedure.IcebergTableProcedure;
 import com.starrocks.connector.iceberg.procedure.NamedArgument;
 import com.starrocks.lake.LakeTableHelper;
+import com.starrocks.policy.SecurityPolicyMgr;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.RunMode;
@@ -1002,6 +1003,7 @@ public class AlterTableClauseAnalyzer implements AstVisitorExtendInterface<Void,
             throw new SemanticException(PARSER_ERROR_MSG.invalidColFormat(clause.getColName()));
         }
         clause.setRollupName(Strings.emptyToNull(clause.getRollupName()));
+        SecurityPolicyMgr.checkColumnUnused(table, clause.getColName(), "dropped");
 
         for (Column column : table.getFullSchema()) {
             if (column.isGeneratedColumn()) {
@@ -1178,6 +1180,7 @@ public class AlterTableClauseAnalyzer implements AstVisitorExtendInterface<Void,
         }
 
         FeNameFormat.checkColumnName(clause.getNewColName());
+        SecurityPolicyMgr.checkColumnUnused(table, clause.getColName(), "renamed");
         if (table != null && table.isNativeTableOrMaterializedView()) {
             FeNameFormat.checkVirtualColumnNameNotUsed(clause.getNewColName());
         }

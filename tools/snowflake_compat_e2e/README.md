@@ -1,6 +1,6 @@
 # Snowflake compatibility end-to-end tests
 
-Shell scripts that check stored procedures, time travel, streams, the CHANGES clause, tasks and the Snowflake query syntax against a running cluster through the
+Shell scripts that check stored procedures, time travel, streams, the CHANGES clause, tasks, security policies and the Snowflake query syntax against a running cluster through the
 `mysql` client. Each prints a PASS or FAIL line per check, ends with `ALL CHECKS PASSED`, and exits with the
 number of failed checks.
 
@@ -16,6 +16,7 @@ number of failed checks.
 | `stream_e2e.sh` | `stream_e2e.sh <fe host> [port] [other fe hosts...]` | CREATE / SHOW / DESCRIBE / DROP STREAM: changes compared with the difference of the table and a copy at the offset, Primary Key, Duplicate Key and partitioned tables, APPEND_ONLY, SHOW_INITIAL_ROWS, consumption by DML and explicit transactions, concurrent consumers, stale streams |
 | `changes_e2e.sh` | `changes_e2e.sh <fe host> [port] [other fe hosts...]` | the CHANGES clause: changes compared with the difference of copies of the table read with time travel, Primary Key, Duplicate Key and partitioned tables, DEFAULT and APPEND_ONLY, AT / BEFORE / OFFSET / END, AT(STREAM => ...) without consuming the stream, CHANGES in INSERT, joins and CTEs, the errors |
 | `stream_task_e2e.sh` | `stream_task_e2e.sh <fe host> [port] [other fe hosts...]` | SYSTEM$STREAM_HAS_DATA, triggered tasks that consume a stream, scheduled and child tasks skipped while their streams have no data, the minimum trigger interval, tasks created through another FE |
+| `policy_e2e.sh` | `[VERIFY_ONLY=1] policy_e2e.sh <fe host> [port] [other fe hosts...]` | masking and row access policies: what users of different roles read through them in queries, joins, views, CTEs, streams and CHANGES, the rows UPDATE / DELETE / MERGE change, the SECURITY privilege, the safeguards, other FEs; `VERIFY_ONLY=1` checks them again after a restart |
 | `in_all_null_e2e.sh` | `HOST=<fe host> in_all_null_e2e.sh` | IN lists of NULL values |
 | `multi_fe_e2e.sh` | `LEADER=<host> FOLLOWER=<host> multi_fe_e2e.sh` | the above driven through a follower FE |
 | `failover_e2e.sh` | `failover_e2e.sh prepare <fe>`, then `failover_e2e.sh verify <leader> <other fes>` | state kept across a leader failover, a restart and a checkpoint |

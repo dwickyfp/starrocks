@@ -22,6 +22,7 @@ import com.starrocks.catalog.TableName;
 import com.starrocks.common.ErrorCode;
 import com.starrocks.common.ErrorReport;
 import com.starrocks.load.Load;
+import com.starrocks.policy.SecurityPolicyMgr;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.sql.ast.ColumnAssignment;
 import com.starrocks.sql.ast.JoinOperator;
@@ -172,6 +173,16 @@ public final class MergeIntoOlapAnalyzer {
             }
         } else if (stmt.getTargetAlias() != null) {
             table0.setAlias(new TableName(null, null, stmt.getTargetAlias()));
+        }
+        Expr rowAccess = SecurityPolicyMgr.targetRowAccess(session, table, target);
+        if (rowAccess != null) {
+            // the rows of the target the row access policy hides are neither matched nor changed
+            SelectList items = new SelectList();
+            items.addItem(new SelectListItem(null));
+            SubqueryRelation visible = new SubqueryRelation(new QueryStatement(
+                    new SelectRelation(items, targetRelation, rowAccess, null, null)));
+            visible.setAlias(target);
+            targetRelation = visible;
         }
         if (bySource) {
             sourceRelation = markSourceRows(sourceRelation, sourceName);

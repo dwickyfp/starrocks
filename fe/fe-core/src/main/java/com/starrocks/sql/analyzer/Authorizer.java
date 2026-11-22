@@ -38,6 +38,7 @@ import com.starrocks.common.Config;
 import com.starrocks.common.Pair;
 import com.starrocks.common.util.ProfileManager;
 import com.starrocks.context.ai.AIProvider;
+import com.starrocks.policy.SecurityPolicyMgr;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.QueryDetail;
 import com.starrocks.server.CatalogMgr;
@@ -46,6 +47,7 @@ import com.starrocks.server.WarehouseManager;
 import com.starrocks.sql.ast.AstTraverser;
 import com.starrocks.sql.ast.ParseNode;
 import com.starrocks.sql.ast.StatementBase;
+import com.starrocks.sql.ast.expression.CompoundPredicate;
 import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.ast.expression.FunctionCallExpr;
 import com.starrocks.sql.ast.expression.StringLiteral;
@@ -55,6 +57,7 @@ import com.starrocks.warehouse.Warehouse;
 import org.apache.commons.collections4.ListUtils;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -488,27 +491,59 @@ public class Authorizer {
     public static Map<String, Expr> getColumnMaskingPolicy(ConnectContext currentUser, TableName tableName,
                                                            List<Column> columns) {
         String catalog = tableName.getCatalog() == null ? InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME : tableName.getCatalog();
-        return getInstance().getAccessControlOrDefault(catalog)
-                .getColumnMaskingPolicy(currentUser, tableName, columns);
+        return withNativeMasking(currentUser, tableName, columns, catalog, getInstance().getAccessControlOrDefault(catalog)
+                .getColumnMaskingPolicy(currentUser, tableName, columns));
     }
 
     /** See {@link com.starrocks.authorization.AccessController#getColumnMaskingPolicyWithoutAudit}. */
     public static Map<String, Expr> getColumnMaskingPolicyWithoutAudit(ConnectContext currentUser, TableName tableName,
                                                                        List<Column> columns) {
         String catalog = tableName.getCatalog() == null ? InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME : tableName.getCatalog();
-        return getInstance().getAccessControlOrDefault(catalog)
-                .getColumnMaskingPolicyWithoutAudit(currentUser, tableName, columns);
+        return withNativeMasking(currentUser, tableName, columns, catalog, getInstance().getAccessControlOrDefault(catalog)
+                .getColumnMaskingPolicyWithoutAudit(currentUser, tableName, columns));
     }
 
     /** See {@link com.starrocks.authorization.AccessController#getRowAccessPolicyWithoutAudit}. */
     public static Expr getRowAccessPolicyWithoutAudit(ConnectContext currentUser, TableName tableName) {
         String catalog = tableName.getCatalog() == null ? InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME : tableName.getCatalog();
-        return getInstance().getAccessControlOrDefault(catalog).getRowAccessPolicyWithoutAudit(currentUser, tableName);
+        return withNativeRowAccess(currentUser, tableName, catalog,
+                getInstance().getAccessControlOrDefault(catalog).getRowAccessPolicyWithoutAudit(currentUser, tableName));
     }
 
     public static Expr getRowAccessPolicy(ConnectContext currentUser, TableName tableName) {
         String catalog = tableName.getCatalog() == null ? InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME : tableName.getCatalog();
-        return getInstance().getAccessControlOrDefault(catalog).getRowAccessPolicy(currentUser, tableName);
+        return withNativeRowAccess(currentUser, tableName, catalog,
+                getInstance().getAccessControlOrDefault(catalog).getRowAccessPolicy(currentUser, tableName));
+    }
+
+    /**
+     * The masking policies of the access controller and the native ones, of CREATE MASKING POLICY, together: a
+     * native one replaces the controller's for its column.
+     */
+    private static Map<String, Expr> withNativeMasking(ConnectContext context, TableName tableName, List<Column> columns,
+                                                       String catalog, Map<String, Expr> masks) {
+        if (!InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME.equalsIgnoreCase(catalog)) {
+            return masks;
+        }
+        Map<String, Expr> natives = SecurityPolicyMgr.masking(context, tableName, columns);
+        if (natives == null || natives.isEmpty()) {
+            return masks;
+        }
+        Map<String, Expr> merged = masks == null ? new HashMap<>() : new HashMap<>(masks);
+        merged.putAll(natives);
+        return merged;
+    }
+
+    /** The row access policy of the access controller and the native one together: a row must pass both. */
+    private static Expr withNativeRowAccess(ConnectContext context, TableName tableName, String catalog, Expr rowAccess) {
+        if (!InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME.equalsIgnoreCase(catalog)) {
+            return rowAccess;
+        }
+        Expr natives = SecurityPolicyMgr.rowAccess(context, tableName);
+        if (natives == null) {
+            return rowAccess;
+        }
+        return rowAccess == null ? natives : new CompoundPredicate(CompoundPredicate.Operator.AND, rowAccess, natives);
     }
 
     /** See {@link com.starrocks.authorization.AccessController#mayHavePolicy}; the name is fully qualified. */

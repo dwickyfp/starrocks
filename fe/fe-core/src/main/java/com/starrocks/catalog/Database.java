@@ -53,6 +53,8 @@ import com.starrocks.common.util.concurrent.lock.LockType;
 import com.starrocks.common.util.concurrent.lock.Locker;
 import com.starrocks.memory.estimate.IgnoreMemoryTrack;
 import com.starrocks.persist.DropInfo;
+import com.starrocks.policy.SecurityPolicy;
+import com.starrocks.policy.TablePolicies;
 import com.starrocks.procedure.StoredProcedure;
 import com.starrocks.server.CatalogMgr;
 import com.starrocks.server.GlobalStateMgr;
@@ -111,6 +113,12 @@ public class Database extends MetaObject implements Writable {
     // Snowflake style streams on tables, by lower-case name, see TableStreamMgr
     @SerializedName(value = "streams")
     private ConcurrentMap<String, TableStream> tableStreams = Maps.newConcurrentMap();
+    // masking and row access policies, by id, see SecurityPolicyMgr
+    @SerializedName(value = "policies")
+    private ConcurrentMap<Long, SecurityPolicy> securityPolicies = Maps.newConcurrentMap();
+    // the policies attached to the tables of the database, by table id
+    @SerializedName(value = "tablePolicies")
+    private ConcurrentMap<Long, TablePolicies> tablePolicies = Maps.newConcurrentMap();
 
     @IgnoreMemoryTrack
     private final Map<String, Table> nameToTable;
@@ -151,6 +159,20 @@ public class Database extends MetaObject implements Writable {
         this.dataQuotaBytes = FeConstants.DEFAULT_DB_DATA_QUOTA_BYTES;
         this.replicaQuotaSize = FeConstants.DEFAULT_DB_REPLICA_QUOTA_SIZE;
         this.location = location;
+    }
+
+    public ConcurrentMap<Long, SecurityPolicy> getSecurityPolicies() {
+        if (securityPolicies == null) {
+            securityPolicies = Maps.newConcurrentMap();
+        }
+        return securityPolicies;
+    }
+
+    public ConcurrentMap<Long, TablePolicies> getTablePolicies() {
+        if (tablePolicies == null) {
+            tablePolicies = Maps.newConcurrentMap();
+        }
+        return tablePolicies;
     }
 
     public ConcurrentMap<String, TableStream> getTableStreams() {

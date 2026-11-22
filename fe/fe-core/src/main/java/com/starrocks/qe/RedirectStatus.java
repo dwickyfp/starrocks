@@ -268,6 +268,8 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.policy.SecurityPolicyStmt;
+import com.starrocks.sql.ast.policy.ShowSecurityPoliciesStmt;
 import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
 import com.starrocks.sql.ast.procedure.DescProcedureStmt;
 import com.starrocks.sql.ast.procedure.DropProcedureStmt;
@@ -1669,6 +1671,16 @@ public class RedirectStatus {
 
         @Override
         public RedirectStatus visitShowTableStreamsStatement(ShowTableStreamsStmt statement, Void context) {
+            return RedirectStatus.NO_FORWARD;
+        }
+
+        @Override
+        public RedirectStatus visitSecurityPolicyStatement(SecurityPolicyStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitShowSecurityPoliciesStatement(ShowSecurityPoliciesStmt statement, Void context) {
             return RedirectStatus.NO_FORWARD;
         }
 

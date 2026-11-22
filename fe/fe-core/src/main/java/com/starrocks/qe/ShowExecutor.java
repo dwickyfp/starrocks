@@ -137,6 +137,7 @@ import com.starrocks.load.streamload.AbstractStreamLoadTask;
 import com.starrocks.load.streamload.StreamLoadFunctionalExprProvider;
 import com.starrocks.meta.BlackListSql;
 import com.starrocks.persist.TableRefPersist;
+import com.starrocks.policy.SecurityPolicyExecutor;
 import com.starrocks.procedure.ProcedureExecutor;
 import com.starrocks.proto.FailPointTriggerModeType;
 import com.starrocks.proto.PFailPointInfo;
@@ -268,6 +269,7 @@ import com.starrocks.sql.ast.integration.ShowSecurityIntegrationStatement;
 import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.policy.ShowSecurityPoliciesStmt;
 import com.starrocks.sql.ast.procedure.DescProcedureStmt;
 import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
@@ -3551,6 +3553,12 @@ public class ShowExecutor {
         @Override
         public ShowResultSet visitDescTableStreamStatement(DescTableStreamStmt statement, ConnectContext context) {
             return TableStreamExecutor.desc(statement, context);
+        }
+
+        @Override
+        public ShowResultSet visitShowSecurityPoliciesStatement(ShowSecurityPoliciesStmt statement,
+                                                                ConnectContext context) {
+            return SecurityPolicyExecutor.show(statement, context);
         }
 
         @Override

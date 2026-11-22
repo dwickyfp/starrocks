@@ -262,6 +262,8 @@ import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
 import com.starrocks.sql.ast.pipe.PipeName;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.policy.SecurityPolicyStmt;
+import com.starrocks.sql.ast.policy.ShowSecurityPoliciesStmt;
 import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
 import com.starrocks.sql.ast.procedure.DescProcedureStmt;
 import com.starrocks.sql.ast.procedure.DropProcedureStmt;
@@ -2492,6 +2494,29 @@ public class AuthorizerStmtVisitor implements AstVisitorExtendInterface<Void, Co
     public Void visitShowTableStreamsStatement(ShowTableStreamsStmt statement, ConnectContext context) {
         // checked by TableStreamExecutor#show
         return null;
+    }
+
+    @Override
+    public Void visitSecurityPolicyStatement(SecurityPolicyStmt statement, ConnectContext context) {
+        checkSecurityPrivilege(context);
+        return null;
+    }
+
+    @Override
+    public Void visitShowSecurityPoliciesStatement(ShowSecurityPoliciesStmt statement, ConnectContext context) {
+        checkSecurityPrivilege(context);
+        return null;
+    }
+
+    /** Masking and row access policies decide what every reader of a table sees: they need SECURITY. */
+    private static void checkSecurityPrivilege(ConnectContext context) {
+        try {
+            Authorizer.checkSystemAction(context, PrivilegeType.SECURITY);
+        } catch (AccessDeniedException e) {
+            AccessDeniedException.reportAccessDenied(InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME,
+                    context.getCurrentUserIdentity(), context.getCurrentRoleIds(),
+                    PrivilegeType.SECURITY.name(), ObjectType.SYSTEM.name(), null);
+        }
     }
 
     @Override

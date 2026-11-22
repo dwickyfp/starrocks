@@ -767,6 +767,13 @@ public class OperationType {
     @IgnorableOnReplayFailed
     public static final short OP_DROP_TABLE_STREAM = 30004;
 
+    // Masking and row access policies. Not ignorable: replaying without them would show the data they hide.
+    public static final short OP_PUT_SECURITY_POLICY = 30005;
+
+    public static final short OP_DROP_SECURITY_POLICY = 30006;
+
+    public static final short OP_SET_TABLE_POLICIES = 30007;
+
     public static final ImmutableSet<Short> IGNORABLE_OPERATIONS = buildIgnorableOperations();
 
     private static ImmutableSet<Short> buildIgnorableOperations() {
@@ -802,7 +809,10 @@ public class OperationType {
                     opType != OP_CREATE_PROCEDURE &&
                     opType != OP_DROP_PROCEDURE &&
                     opType != OP_CREATE_TABLE_STREAM &&
-                    opType != OP_DROP_TABLE_STREAM) {
+                    opType != OP_DROP_TABLE_STREAM &&
+                    opType != OP_PUT_SECURITY_POLICY &&
+                    opType != OP_DROP_SECURITY_POLICY &&
+                    opType != OP_SET_TABLE_POLICIES) {
                 LOG.fatal("OperationType cannot use a value exceeding 20000, " +
                         "and an error will be reported if it exceeds : {} = {}", field.getName(), opType);
                 System.exit(-1);

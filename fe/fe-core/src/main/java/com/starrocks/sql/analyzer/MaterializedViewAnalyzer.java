@@ -55,6 +55,7 @@ import com.starrocks.common.util.DateUtils;
 import com.starrocks.common.util.PropertyAnalyzer;
 import com.starrocks.common.util.TimeUtils;
 import com.starrocks.mv.analyzer.MVPartitionSlotRefResolver;
+import com.starrocks.policy.SecurityPolicyMgr;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SqlModeHelper;
 import com.starrocks.server.GlobalStateMgr;
@@ -435,6 +436,8 @@ public class MaterializedViewAnalyzer {
             SavedSqlGeoValidator.validate(queryStatement);
             AnalyzerUtils.checkNondeterministicFunction(queryStatement);
             AnalyzerUtils.prohibitTimeTravelQuery(queryStatement, "create materialized view");
+            SecurityPolicyMgr.checkNoPolicies(AnalyzerUtils.collectTableRelations(queryStatement),
+                    "create materialized view");
 
             boolean hasTemporaryTable = AnalyzerUtils.hasTemporaryTables(queryStatement);
             if (hasTemporaryTable) {

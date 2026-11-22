@@ -33,6 +33,7 @@ import com.starrocks.common.proc.ProcService;
 import com.starrocks.common.proc.RollupProcDir;
 import com.starrocks.common.proc.SchemaChangeProcDir;
 import com.starrocks.common.proc.TransProcDir;
+import com.starrocks.policy.SecurityPolicyExecutor;
 import com.starrocks.procedure.ProcedureExecutor;
 import com.starrocks.scheduler.UserTaskExecutor;
 import com.starrocks.sql.ast.AdminRepairTableStmt;
@@ -132,6 +133,7 @@ import com.starrocks.sql.ast.group.ShowGroupProvidersStmt;
 import com.starrocks.sql.ast.integration.ShowSecurityIntegrationStatement;
 import com.starrocks.sql.ast.pipe.DescPipeStmt;
 import com.starrocks.sql.ast.pipe.ShowPipeStmt;
+import com.starrocks.sql.ast.policy.ShowSecurityPoliciesStmt;
 import com.starrocks.sql.ast.procedure.DescProcedureStmt;
 import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
@@ -699,6 +701,12 @@ public class ShowResultMetaFactory implements AstVisitorExtendInterface<ShowResu
     @Override
     public ShowResultSetMetaData visitDescTableStreamStatement(DescTableStreamStmt statement, Void context) {
         return TableStreamExecutor.META_DATA;
+    }
+
+    @Override
+    public ShowResultSetMetaData visitShowSecurityPoliciesStatement(ShowSecurityPoliciesStmt statement,
+                                                                    Void context) {
+        return SecurityPolicyExecutor.META_DATA;
     }
 
     @Override

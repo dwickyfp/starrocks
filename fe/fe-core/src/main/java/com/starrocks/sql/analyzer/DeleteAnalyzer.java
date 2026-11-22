@@ -28,6 +28,7 @@ import com.starrocks.common.ErrorCode;
 import com.starrocks.common.ErrorReport;
 import com.starrocks.common.FeConstants;
 import com.starrocks.load.Load;
+import com.starrocks.policy.SecurityPolicyMgr;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.sql.ast.DeleteStmt;
 import com.starrocks.sql.ast.JoinRelation;
@@ -316,6 +317,11 @@ public class DeleteAnalyzer {
         }
 
         if (!(table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.PRIMARY_KEYS)) {
+            if (table instanceof OlapTable && SecurityPolicyMgr.targetRowAccess(session, table, tableName) != null) {
+                // its conditions are applied by the storage, which knows nothing of the policy
+                throw new SemanticException("DELETE FROM %s is not supported: the table has a row access policy, and "
+                        + "only a Primary Key table can be deleted from through one", tableName.getTbl());
+            }
             // Such a DELETE runs as a DeleteMgr job that begins and commits a transaction of its own. Inside an
             // explicit transaction it would take effect at once, and ROLLBACK could not undo it.
             if (session.getTxnId() != 0) {
@@ -360,8 +366,9 @@ public class DeleteAnalyzer {
                 relation = new JoinRelation(null, relation, r, null, false);
             }
         }
-        SelectRelation selectRelation =
-                new SelectRelation(selectList, relation, deleteStatement.getWherePredicate(), null, null);
+        SelectRelation selectRelation = new SelectRelation(selectList, relation,
+                SecurityPolicyMgr.andTargetRowAccess(session, table, tableName, deleteStatement.getWherePredicate()),
+                null, null);
         if (deleteStatement.getCommonTableExpressions() != null) {
             deleteStatement.getCommonTableExpressions().forEach(selectRelation::addCTERelation);
         }

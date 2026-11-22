@@ -39,6 +39,7 @@ import com.starrocks.datacache.DataCacheSelectExecutor;
 import com.starrocks.datacache.DataCacheSelectMetrics;
 import com.starrocks.lake.TabletRepairHelper;
 import com.starrocks.load.EtlJobType;
+import com.starrocks.policy.SecurityPolicyExecutor;
 import com.starrocks.procedure.ProcedureExecutor;
 import com.starrocks.scheduler.Constants;
 import com.starrocks.scheduler.Task;
@@ -165,6 +166,7 @@ import com.starrocks.sql.ast.integration.DropSecurityIntegrationStatement;
 import com.starrocks.sql.ast.pipe.AlterPipeStmt;
 import com.starrocks.sql.ast.pipe.CreatePipeStmt;
 import com.starrocks.sql.ast.pipe.DropPipeStmt;
+import com.starrocks.sql.ast.policy.SecurityPolicyStmt;
 import com.starrocks.sql.ast.procedure.CreateProcedureStmt;
 import com.starrocks.sql.ast.procedure.DropProcedureStmt;
 import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
@@ -1192,6 +1194,12 @@ public class DDLStmtExecutor {
         @Override
         public ShowResultSet visitDropTableStreamStatement(DropTableStreamStmt stmt, ConnectContext context) {
             ErrorReport.wrapWithRuntimeException(() -> TableStreamExecutor.drop(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitSecurityPolicyStatement(SecurityPolicyStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> SecurityPolicyExecutor.execute(stmt, context));
             return null;
         }
 

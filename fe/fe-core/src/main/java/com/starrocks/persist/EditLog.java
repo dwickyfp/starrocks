@@ -77,6 +77,10 @@ import com.starrocks.load.streamload.StreamLoadTask;
 import com.starrocks.metric.MetricRepo;
 import com.starrocks.persist.gson.GsonUtils;
 import com.starrocks.plugin.PluginInfo;
+import com.starrocks.policy.DropSecurityPolicyLog;
+import com.starrocks.policy.SecurityPolicy;
+import com.starrocks.policy.SecurityPolicyMgr;
+import com.starrocks.policy.TablePolicies;
 import com.starrocks.procedure.DropProcedureLog;
 import com.starrocks.procedure.StoredProcedure;
 import com.starrocks.procedure.StoredProcedureMgr;
@@ -1245,6 +1249,18 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_TABLE_STREAM: {
                     TableStreamMgr.replayDrop((DropTableStreamLog) journal.data());
+                    break;
+                }
+                case OperationType.OP_PUT_SECURITY_POLICY: {
+                    SecurityPolicyMgr.replayPut((SecurityPolicy) journal.data());
+                    break;
+                }
+                case OperationType.OP_DROP_SECURITY_POLICY: {
+                    SecurityPolicyMgr.replayDrop((DropSecurityPolicyLog) journal.data());
+                    break;
+                }
+                case OperationType.OP_SET_TABLE_POLICIES: {
+                    SecurityPolicyMgr.replaySetTablePolicies((TablePolicies) journal.data());
                     break;
                 }
                 case OperationType.OP_SET_DEFAULT_AI_PROVIDER: {
@@ -2498,6 +2514,18 @@ public class EditLog {
 
     public void logDropTableStream(DropTableStreamLog log, WALApplier walApplier) {
         logJsonObject(OperationType.OP_DROP_TABLE_STREAM, log, walApplier);
+    }
+
+    public void logPutSecurityPolicy(SecurityPolicy policy, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_PUT_SECURITY_POLICY, policy, walApplier);
+    }
+
+    public void logDropSecurityPolicy(DropSecurityPolicyLog log, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_DROP_SECURITY_POLICY, log, walApplier);
+    }
+
+    public void logSetTablePolicies(TablePolicies policies, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_SET_TABLE_POLICIES, policies, walApplier);
     }
 
     public void logSetDefaultAIProvider(SetDefaultAIProviderLog log, WALApplier walApplier) {
