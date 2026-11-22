@@ -18,6 +18,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.IcebergTable;
+import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Table;
 import com.starrocks.catalog.TableName;
 import com.starrocks.common.ErrorCode;
@@ -69,9 +70,19 @@ public class MergeIntoAnalyzer {
         Table table = AnalyzerUtils.resolveWriteTarget(session, tableName);
 
         if (table instanceof IcebergTable icebergTable) {
+            for (MergeWhenClause clause : stmt.getWhenClauses()) {
+                if (clause.isNotMatchedBySource()) {
+                    throw new SemanticException("WHEN NOT MATCHED BY SOURCE is only supported for Primary Key tables");
+                }
+                if (clause instanceof MergeWhenMatchedUpdateClause update && update.isStar()) {
+                    throw new SemanticException("UPDATE SET * is only supported for Primary Key tables");
+                }
+            }
             analyzeIcebergTable(stmt, icebergTable, tableName, session);
+        } else if (table instanceof OlapTable olapTable) {
+            MergeIntoOlapAnalyzer.analyze(stmt, olapTable, tableName, session);
         } else {
-            throw new SemanticException("MERGE INTO is only supported for Iceberg tables");
+            throw new SemanticException("MERGE INTO is only supported for Primary Key tables and Iceberg tables");
         }
     }
 
@@ -494,7 +505,7 @@ public class MergeIntoAnalyzer {
             // column name (not by position). The source must expose a column whose
             // name matches each non-hidden target column; otherwise QueryAnalyzer
             // raises a resolution error on the rewritten SELECT list.
-            String sourceQualifier = getInsertStarSourceQualifier(stmt);
+            String sourceQualifier = sourceQualifier(stmt);
             return new SlotRef(new TableName(null, null, sourceQualifier), col.getName());
         }
 
@@ -542,7 +553,10 @@ public class MergeIntoAnalyzer {
         }
     }
 
-    private static String getInsertStarSourceQualifier(MergeIntoStmt stmt) {
+    /**
+     * The name the source relation is referred to by: its alias, or the name of a source table.
+     */
+    static String sourceQualifier(MergeIntoStmt stmt) {
         if (stmt.getSourceAlias() != null) {
             return stmt.getSourceAlias();
         }
@@ -553,7 +567,8 @@ public class MergeIntoAnalyzer {
         if (stmt.getSourceRelation() instanceof TableRelation tr) {
             return tr.getName().getTbl();
         }
-        throw new SemanticException("MERGE INTO INSERT * requires an aliased source relation");
+        throw new SemanticException("MERGE INTO with UPDATE SET *, WHEN NOT MATCHED BY SOURCE or "
+                + "INSERT * requires an aliased source relation");
     }
 
     /**

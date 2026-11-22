@@ -936,6 +936,9 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     public static final String CUSTOM_QUERY_ID = "custom_query_id";
     // A free-form label of the statements of a session, written to the audit log (Snowflake's QUERY_TAG).
     public static final String QUERY_TAG = "query_tag";
+    // MERGE INTO on a Primary Key table fails when two of its output rows have the same key (Snowflake's
+    // ERROR_ON_NONDETERMINISTIC_MERGE). When false, one of them is written.
+    public static final String ERROR_ON_NONDETERMINISTIC_MERGE = "error_on_nondeterministic_merge";
 
     // Access ORC columns by name. By default, columns in ORC files are accessed by
     // their ordinal position in the Hive table definition.
@@ -3963,6 +3966,9 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     @VarAttr(name = QUERY_TAG)
     private String queryTag = "";
 
+    @VarAttr(name = ERROR_ON_NONDETERMINISTIC_MERGE)
+    private boolean errorOnNondeterministicMerge = true;
+
     @VarAttr(name = CUSTOM_SESSION_NAME, flag = VariableMgr.SESSION_ONLY)
     private String customSessionName = "";
 
@@ -6715,6 +6721,14 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
 
     public void setQueryTag(String queryTag) {
         this.queryTag = queryTag;
+    }
+
+    public boolean isErrorOnNondeterministicMerge() {
+        return errorOnNondeterministicMerge;
+    }
+
+    public void setErrorOnNondeterministicMerge(boolean errorOnNondeterministicMerge) {
+        this.errorOnNondeterministicMerge = errorOnNondeterministicMerge;
     }
 
     public String getCustomSessionName() {

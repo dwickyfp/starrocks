@@ -20,9 +20,19 @@ import com.starrocks.sql.parser.NodePosition;
 public abstract class MergeWhenClause implements ParseNode {
     private final Expr optionalCondition;
     private final NodePosition pos;
+    private final boolean notMatchedBySource;
 
     protected MergeWhenClause(Expr optionalCondition, NodePosition pos) {
+        this(optionalCondition, false, pos);
+    }
+
+    /**
+     * @param notMatchedBySource true for {@code WHEN NOT MATCHED BY SOURCE}, which acts on target rows that no
+     *                           source row matches. Only an UPDATE or a DELETE clause can be one.
+     */
+    protected MergeWhenClause(Expr optionalCondition, boolean notMatchedBySource, NodePosition pos) {
         this.optionalCondition = optionalCondition;
+        this.notMatchedBySource = notMatchedBySource;
         this.pos = pos;
     }
 
@@ -30,9 +40,19 @@ public abstract class MergeWhenClause implements ParseNode {
         return optionalCondition;
     }
 
+    /**
+     * True for a {@code WHEN MATCHED} clause.
+     */
     public boolean isMatched() {
-        return this instanceof MergeWhenMatchedUpdateClause
-                || this instanceof MergeWhenMatchedDeleteClause;
+        return !notMatchedBySource && (this instanceof MergeWhenMatchedUpdateClause
+                || this instanceof MergeWhenMatchedDeleteClause);
+    }
+
+    /**
+     * True for a {@code WHEN NOT MATCHED BY SOURCE} clause.
+     */
+    public boolean isNotMatchedBySource() {
+        return notMatchedBySource;
     }
 
     @Override

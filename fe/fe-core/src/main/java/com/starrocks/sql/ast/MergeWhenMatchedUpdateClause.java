@@ -21,12 +21,27 @@ import java.util.List;
 
 public class MergeWhenMatchedUpdateClause extends MergeWhenClause {
     private final List<ColumnAssignment> assignments;
+    private final boolean star;
 
     public MergeWhenMatchedUpdateClause(Expr optionalCondition,
                                         List<ColumnAssignment> assignments,
                                         NodePosition pos) {
-        super(optionalCondition, pos);
+        this(optionalCondition, assignments, false, false, pos);
+    }
+
+    /**
+     * @param star true for {@code UPDATE SET *}, which sets every column of the target to the source column of
+     *             the same name; {@code assignments} is then empty.
+     */
+    public MergeWhenMatchedUpdateClause(Expr optionalCondition, List<ColumnAssignment> assignments, boolean star,
+                                        boolean notMatchedBySource, NodePosition pos) {
+        super(optionalCondition, notMatchedBySource, pos);
         this.assignments = assignments;
+        this.star = star;
+    }
+
+    public boolean isStar() {
+        return star;
     }
 
     public List<ColumnAssignment> getAssignments() {

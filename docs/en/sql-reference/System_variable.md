@@ -1317,6 +1317,12 @@ The following variables tune the back-pressure behavior and only take effect whe
 * **Default**: false
 * **Introduced in**: v3.2
 
+### error_on_nondeterministic_merge
+
+* **Description**: Whether `MERGE INTO` a Primary Key table fails when two of the rows it writes have the same primary key: when more than one source row matches one target row, or when more than one inserted row has the same key. Like Snowflake's `ERROR_ON_NONDETERMINISTIC_MERGE`. When `false`, one of the rows is written, and which one is not defined.
+* **Default**: true
+* **Data type**: Boolean
+
 ### event_scheduler
 
 Used for MySQL client compatibility. No practical usage.

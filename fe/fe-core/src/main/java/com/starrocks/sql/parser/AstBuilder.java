@@ -3044,22 +3044,48 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
     public ParseNode visitMergeWhenMatched(
             com.starrocks.sql.parser.StarRocksParser.MergeWhenMatchedContext context) {
         Expr condition = context.matchedCondition != null ? (Expr) visit(context.matchedCondition) : null;
-        var action = context.mergeMatchedAction();
+        return buildMergeMatchedAction(context.mergeMatchedAction(), condition, false, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitMergeWhenNotMatchedBySource(
+            com.starrocks.sql.parser.StarRocksParser.MergeWhenNotMatchedBySourceContext context) {
+        checkMergeNotMatchedBy(context.bySource, "SOURCE");
+        Expr condition = context.bySourceCondition != null ? (Expr) visit(context.bySourceCondition) : null;
+        return buildMergeMatchedAction(context.mergeMatchedAction(), condition, true, createPos(context));
+    }
+
+    private MergeWhenClause buildMergeMatchedAction(com.starrocks.sql.parser.StarRocksParser.MergeMatchedActionContext action,
+                                                    Expr condition, boolean notMatchedBySource, NodePosition pos) {
         if (action instanceof com.starrocks.sql.parser.StarRocksParser.MergeMatchedUpdateContext updateCtx) {
             List<ColumnAssignment> assignments =
                     visit(updateCtx.assignmentList().assignment(), ColumnAssignment.class);
-            return new MergeWhenMatchedUpdateClause(condition, assignments, createPos(context));
+            return new MergeWhenMatchedUpdateClause(condition, assignments, false, notMatchedBySource, pos);
+        } else if (action instanceof com.starrocks.sql.parser.StarRocksParser.MergeMatchedUpdateStarContext) {
+            return new MergeWhenMatchedUpdateClause(condition, new ArrayList<>(), true, notMatchedBySource, pos);
         } else if (action instanceof com.starrocks.sql.parser.StarRocksParser.MergeMatchedDeleteContext) {
-            return new MergeWhenMatchedDeleteClause(condition, createPos(context));
+            return new MergeWhenMatchedDeleteClause(condition, notMatchedBySource, pos);
         } else {
             throw new ParsingException(PARSER_ERROR_MSG.unsupportedOp(
                     "merge matched action: " + action.getClass().getSimpleName()));
         }
     }
 
+    /**
+     * Checks the word after {@code WHEN NOT MATCHED BY}, which is parsed as an identifier so that TARGET and
+     * SOURCE stay usable as names.
+     */
+    private void checkMergeNotMatchedBy(com.starrocks.sql.parser.StarRocksParser.IdentifierContext by, String expected) {
+        if (by != null && !getIdentifierName(by).equalsIgnoreCase(expected)) {
+            throw new ParsingException(String.format("Expected WHEN NOT MATCHED BY %s, but got BY %s", expected,
+                    getIdentifierName(by)), createPos(by));
+        }
+    }
+
     @Override
     public ParseNode visitMergeWhenNotMatched(
             com.starrocks.sql.parser.StarRocksParser.MergeWhenNotMatchedContext context) {
+        checkMergeNotMatchedBy(context.notMatchedBy, "TARGET");
         Expr condition = context.notMatchedCondition != null ? (Expr) visit(context.notMatchedCondition) : null;
         var action = context.mergeNotMatchedAction();
         if (action instanceof com.starrocks.sql.parser.StarRocksParser.MergeNotMatchedInsertStarContext) {

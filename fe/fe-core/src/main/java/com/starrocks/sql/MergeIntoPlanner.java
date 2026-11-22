@@ -18,6 +18,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.IcebergTable;
+import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Table;
 import com.starrocks.connector.iceberg.IcebergMetadata;
 import com.starrocks.connector.iceberg.ScalarOperatorToIcebergExpr;
@@ -95,6 +96,9 @@ public class MergeIntoPlanner {
     }
 
     public ExecPlan plan(MergeIntoStmt mergeIntoStmt, ConnectContext session) {
+        if (mergeIntoStmt.getTable() instanceof OlapTable) {
+            return new MergeIntoOlapPlanner().plan(mergeIntoStmt, session);
+        }
         // The BE EnforceUniqueRowLocatorNode is pipeline-engine-only (its non-pipeline entry
         // points return NotSupported), so fail fast with a clear message instead of
         // letting the BE error out at runtime.
@@ -118,7 +122,7 @@ public class MergeIntoPlanner {
         Table targetTable = mergeIntoStmt.getTable();
 
         if (!(targetTable instanceof IcebergTable)) {
-            throw new SemanticException("MERGE INTO is only supported for Iceberg tables");
+            throw new SemanticException("MERGE INTO is only supported for Primary Key tables and Iceberg tables");
         }
 
         IcebergTable icebergTable = (IcebergTable) targetTable;

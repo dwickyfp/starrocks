@@ -99,6 +99,35 @@ SET query_tag = 'nightly-etl';
 SELECT /*+ SET_VAR(query_tag = 'adhoc') */ count(*) FROM sales;
 ```
 
+## MERGE INTO a Primary Key table
+
+`MERGE INTO` updates, deletes and inserts the rows of a Primary Key table from a source in one statement and one transaction.
+
+```sql
+MERGE INTO target [[AS] t] USING source [[AS] s] ON condition
+WHEN MATCHED [AND condition] THEN UPDATE SET column = expression [, ...] | UPDATE SET * | DELETE
+WHEN NOT MATCHED [BY TARGET] [AND condition] THEN INSERT [(column, ...)] VALUES (expression, ...) | INSERT *
+WHEN NOT MATCHED BY SOURCE [AND condition] THEN UPDATE SET column = expression [, ...] | DELETE
+```
+
+- A target row that a source row matches is changed by the first `WHEN MATCHED` clause whose condition holds.
+- A source row that matches no target row is inserted by the first `WHEN NOT MATCHED` clause whose condition holds.
+- A target row that no source row matches is changed by the first `WHEN NOT MATCHED BY SOURCE` clause whose condition holds.
+- A row that no clause applies to is left as it is. Only the last clause of each kind can have no condition.
+- `UPDATE SET *` sets every column that is not a key column to the source column of the same name, and `INSERT *` inserts the source columns of the same names. These and `WHEN NOT MATCHED BY SOURCE` need a source with an alias, or a source table.
+- A column that `INSERT` leaves out gets its default value, and an `AUTO_INCREMENT` column a new ID. Generated columns are computed from the new values. Key columns and generated columns cannot be updated.
+
+```sql
+MERGE INTO customers t USING customer_updates s ON t.id = s.id
+WHEN MATCHED AND s.deleted THEN DELETE
+WHEN MATCHED THEN UPDATE SET name = s.name, visits = t.visits + s.visits
+WHEN NOT MATCHED AND NOT s.deleted THEN INSERT (id, name, visits) VALUES (s.id, s.name, s.visits);
+```
+
+The statement fails and changes nothing when two of the rows it writes have the same key: when more than one source row matches a target row, or when more than one inserted row has the same key. Set the session variable `error_on_nondeterministic_merge` to `false` to write one of them instead, and skip the check, which sorts the written rows by key.
+
+The source and the target are read once and joined once. `WHEN NOT MATCHED BY SOURCE` needs a full outer join, which reads the whole target table.
+
 ## Limitations
 
 - `TRY_CAST` and the `TRY_TO_*` functions give `NULL` for a value that cannot be converted only while the SQL mode `ALLOW_THROW_EXCEPTION` is off, which is the default.
@@ -106,3 +135,4 @@ SELECT /*+ SET_VAR(query_tag = 'adhoc') */ count(*) FROM sales;
 - The compatibility functions are resolved before user-defined functions: a user-defined function with one of their names must be called with its database name, such as `db.iff(...)`.
 - In `QUALIFY`, an aggregate outside a window function is not supported. In a select list with a star, a column in `QUALIFY` must be one of the columns the star expands to.
 - `UNPIVOT` names columns, not expressions, and is supported after the `FROM` clause of a query, not after a single relation in a join.
+- `MERGE INTO` is not supported for a Primary Key table while its schema is being changed. `WHEN NOT MATCHED BY SOURCE` and `UPDATE SET *` are not supported for Iceberg tables.

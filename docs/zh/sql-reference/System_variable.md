@@ -1116,6 +1116,12 @@ FROM test;
 * 默认值：false
 * 引入版本：v3.2
 
+### error_on_nondeterministic_merge
+
+* 描述：对主键表执行 `MERGE INTO` 时，如果写入的多行具有相同的主键（多个源行匹配同一目标行，或插入的多行主键相同），是否报错。类似 Snowflake 的 `ERROR_ON_NONDETERMINISTIC_MERGE`。设置为 `false` 时只写入其中一行，写入哪一行不确定。
+* 默认值：true
+* 类型：Boolean
+
 ### event_scheduler
 
 * 描述：用于兼容 MySQL 客户端。无实际作用。

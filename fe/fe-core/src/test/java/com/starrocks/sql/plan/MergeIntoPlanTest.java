@@ -720,4 +720,17 @@ public class MergeIntoPlanTest extends PlanTestBase {
             connectContext.getSessionVariable().setEnablePipelineEngine(prev);
         }
     }
+
+    @Test
+    public void testPrimaryKeyOnlyClausesAreRejectedForIceberg() {
+        Exception bySource = assertThrows(Exception.class, () -> getMergeExecPlan(
+                "MERGE INTO iceberg0.unpartitioned_db.t0_v2 AS t USING iceberg0.unpartitioned_db.t0_v2 AS s "
+                        + "ON t.id = s.id WHEN NOT MATCHED BY SOURCE THEN DELETE"));
+        assertTrue(bySource.getMessage().contains("WHEN NOT MATCHED BY SOURCE is only supported for Primary Key"),
+                bySource.getMessage());
+        Exception star = assertThrows(Exception.class, () -> getMergeExecPlan(
+                "MERGE INTO iceberg0.unpartitioned_db.t0_v2 AS t USING iceberg0.unpartitioned_db.t0_v2 AS s "
+                        + "ON t.id = s.id WHEN MATCHED THEN UPDATE SET *"));
+        assertTrue(star.getMessage().contains("UPDATE SET * is only supported for Primary Key"), star.getMessage());
+    }
 }

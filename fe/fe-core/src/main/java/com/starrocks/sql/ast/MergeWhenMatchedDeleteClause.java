@@ -21,4 +21,8 @@ public class MergeWhenMatchedDeleteClause extends MergeWhenClause {
     public MergeWhenMatchedDeleteClause(Expr optionalCondition, NodePosition pos) {
         super(optionalCondition, pos);
     }
+
+    public MergeWhenMatchedDeleteClause(Expr optionalCondition, boolean notMatchedBySource, NodePosition pos) {
+        super(optionalCondition, notMatchedBySource, pos);
+    }
 }

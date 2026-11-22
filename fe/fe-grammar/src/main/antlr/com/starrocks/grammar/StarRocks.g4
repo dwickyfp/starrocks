@@ -1455,11 +1455,13 @@ mergeIntoStatement
 
 mergeWhenClause
     : WHEN MATCHED (AND matchedCondition=expression)? THEN mergeMatchedAction       #mergeWhenMatched
-    | WHEN NOT MATCHED (AND notMatchedCondition=expression)? THEN mergeNotMatchedAction   #mergeWhenNotMatched
+    | WHEN NOT MATCHED (BY notMatchedBy=identifier)? (AND notMatchedCondition=expression)? THEN mergeNotMatchedAction   #mergeWhenNotMatched
+    | WHEN NOT MATCHED BY bySource=identifier (AND bySourceCondition=expression)? THEN mergeMatchedAction   #mergeWhenNotMatchedBySource
     ;
 
 mergeMatchedAction
-    : UPDATE SET assignmentList      #mergeMatchedUpdate
+    : UPDATE SET ASTERISK_SYMBOL     #mergeMatchedUpdateStar
+    | UPDATE SET assignmentList      #mergeMatchedUpdate
     | DELETE                         #mergeMatchedDelete
     ;
 
