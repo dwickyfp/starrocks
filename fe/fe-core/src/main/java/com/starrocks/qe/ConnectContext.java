@@ -360,6 +360,18 @@ public class ConnectContext {
     private Set<Long> currentReadTableIds = null;
     private int timeTravelScopeDepth = 0;
 
+    // The operation DESCRIBE HISTORY shows for the DML statements of this session, instead of their own kind:
+    // set by statements that run DML for another statement, such as RESTORE TABLE.
+    private String dmlOperationName = null;
+
+    public String getDmlOperationName() {
+        return dmlOperationName;
+    }
+
+    public void setDmlOperationName(String dmlOperationName) {
+        this.dmlOperationName = dmlOperationName;
+    }
+
     public Map<Long, Long> getTimeTravelScanVersions() {
         return timeTravelScanVersions;
     }

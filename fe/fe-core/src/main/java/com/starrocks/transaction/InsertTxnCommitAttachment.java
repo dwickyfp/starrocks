@@ -46,6 +46,11 @@ public class InsertTxnCommitAttachment extends TxnCommitAttachment {
     @SerializedName("requireEmptyPartitions")
     private boolean requireEmptyPartitions = false;
 
+    // The statement that wrote the rows (INSERT_INTO, UPDATE, DELETE, MERGE_INTO, ...), for DESCRIBE HISTORY.
+    // null for transactions committed before it was recorded.
+    @SerializedName("operation")
+    private String operation;
+
     public InsertTxnCommitAttachment() {
         super(TransactionState.LoadJobSourceType.INSERT_STREAMING);
     }
@@ -63,6 +68,14 @@ public class InsertTxnCommitAttachment extends TxnCommitAttachment {
 
     public long getLoadedRows() {
         return loadedRows;
+    }
+
+    public String getOperation() {
+        return operation;
+    }
+
+    public void setOperation(String operation) {
+        this.operation = operation;
     }
 
     public boolean getIsVersionOverwrite() {

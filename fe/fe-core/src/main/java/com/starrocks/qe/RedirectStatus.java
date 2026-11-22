@@ -103,6 +103,7 @@ import com.starrocks.sql.ast.DelSqlBlackListStmt;
 import com.starrocks.sql.ast.DelSqlDigestBlackListStmt;
 import com.starrocks.sql.ast.DeleteStmt;
 import com.starrocks.sql.ast.DescStorageVolumeStmt;
+import com.starrocks.sql.ast.DescribeHistoryStmt;
 import com.starrocks.sql.ast.DescribeStmt;
 import com.starrocks.sql.ast.DropAnalyzeJobStmt;
 import com.starrocks.sql.ast.DropCatalogStmt;
@@ -147,6 +148,7 @@ import com.starrocks.sql.ast.RefreshDictionaryStmt;
 import com.starrocks.sql.ast.RefreshMaterializedViewStatement;
 import com.starrocks.sql.ast.RefreshTableStmt;
 import com.starrocks.sql.ast.RestoreStmt;
+import com.starrocks.sql.ast.RestoreTableStmt;
 import com.starrocks.sql.ast.ResumeRoutineLoadStmt;
 import com.starrocks.sql.ast.RevokeRoleStmt;
 import com.starrocks.sql.ast.SetCatalogStmt;
@@ -1811,6 +1813,17 @@ public class RedirectStatus {
 
         @Override
         public RedirectStatus visitRollbackStatement(RollbackStmt statement, Void context) {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
+
+        @Override
+        public RedirectStatus visitDescribeHistoryStatement(DescribeHistoryStmt statement, Void context) {
+            return visitShowStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitRestoreTableStatement(RestoreTableStmt statement, Void context) {
+            // runs its statements through an internal executor, which does not forward on its own
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
 

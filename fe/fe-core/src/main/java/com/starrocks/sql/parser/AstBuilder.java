@@ -176,6 +176,7 @@ import com.starrocks.sql.ast.DelSqlBlackListStmt;
 import com.starrocks.sql.ast.DelSqlDigestBlackListStmt;
 import com.starrocks.sql.ast.DeleteStmt;
 import com.starrocks.sql.ast.DescStorageVolumeStmt;
+import com.starrocks.sql.ast.DescribeHistoryStmt;
 import com.starrocks.sql.ast.DescribeStmt;
 import com.starrocks.sql.ast.DistributionDesc;
 import com.starrocks.sql.ast.DropAnalyzeJobStmt;
@@ -309,6 +310,7 @@ import com.starrocks.sql.ast.ReplacePartitionClause;
 import com.starrocks.sql.ast.ReplacePartitionColumnClause;
 import com.starrocks.sql.ast.ResourceDesc;
 import com.starrocks.sql.ast.RestoreStmt;
+import com.starrocks.sql.ast.RestoreTableStmt;
 import com.starrocks.sql.ast.ResumeRoutineLoadStmt;
 import com.starrocks.sql.ast.RevokePrivilegeStmt;
 import com.starrocks.sql.ast.RevokeRoleStmt;
@@ -3074,6 +3076,26 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         }
         ret.setHintNodes(hintMap.get(context));
         return ret;
+    }
+
+    @Override
+    public ParseNode visitDescribeHistoryStatement(
+            com.starrocks.sql.parser.StarRocksParser.DescribeHistoryStatementContext context) {
+        QualifiedName qualifiedName = getQualifiedName(context.qualifiedName());
+        NodePosition pos = createPos(context);
+        long limit = context.limit == null ? -1 : Long.parseLong(context.limit.getText());
+        return new DescribeHistoryStmt(new TableRef(normalizeName(qualifiedName), null, pos), limit, pos);
+    }
+
+    @Override
+    public ParseNode visitRestoreTableStatement(
+            com.starrocks.sql.parser.StarRocksParser.RestoreTableStatementContext context) {
+        QualifiedName qualifiedName = getQualifiedName(context.qualifiedName());
+        NodePosition pos = createPos(context);
+        String timeTravelSql = context.timeTravelClause() != null ? extractRawText(context.timeTravelClause())
+                : "FOR " + context.periodType().getText().toUpperCase(Locale.ROOT) + " AS OF "
+                + extractRawText(context.point);
+        return new RestoreTableStmt(new TableRef(normalizeName(qualifiedName), null, pos), timeTravelSql, pos);
     }
 
     /**

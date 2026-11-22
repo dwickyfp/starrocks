@@ -43,6 +43,7 @@ import com.starrocks.sql.ast.AdminShowReplicaStatusStmt;
 import com.starrocks.sql.ast.AdminShowTabletStatusStmt;
 import com.starrocks.sql.ast.AstVisitorExtendInterface;
 import com.starrocks.sql.ast.DescStorageVolumeStmt;
+import com.starrocks.sql.ast.DescribeHistoryStmt;
 import com.starrocks.sql.ast.DescribeStmt;
 import com.starrocks.sql.ast.HelpStmt;
 import com.starrocks.sql.ast.RefreshMaterializedViewStatement;
@@ -868,6 +869,19 @@ public class ShowResultMetaFactory implements AstVisitorExtendInterface<ShowResu
                 .addColumn(new Column("Sources", TypeFactory.createVarcharType(200)))
                 .addColumn(new Column("Status", TypeFactory.createVarcharType(20)))
                 .addColumn(new Column("Properties", TypeFactory.createVarcharType(250)))
+                .build();
+    }
+
+    @Override
+    public ShowResultSetMetaData visitDescribeHistoryStatement(DescribeHistoryStmt statement, Void context) {
+        return ShowResultSetMetaData.builder()
+                .addColumn(new Column("VERSION_TIME", TypeFactory.createVarcharType(32)))
+                .addColumn(new Column("OPERATION", TypeFactory.createVarcharType(32)))
+                .addColumn(new Column("ROWS", TypeFactory.createVarcharType(32)))
+                .addColumn(new Column("PARTITIONS", TypeFactory.createVarcharType(32)))
+                .addColumn(new Column("TXN_ID", TypeFactory.createVarcharType(32)))
+                .addColumn(new Column("LABEL", TypeFactory.createVarcharType(256)))
+                .addColumn(new Column("RESTORABLE", TypeFactory.createVarcharType(8)))
                 .build();
     }
 

@@ -132,6 +132,7 @@ import com.starrocks.thrift.TStorageType;
 import com.starrocks.thrift.TTableDescriptor;
 import com.starrocks.thrift.TTableType;
 import com.starrocks.thrift.TWriteQuorumType;
+import com.starrocks.timetravel.TableCommitHistory;
 import com.starrocks.type.PrimitiveType;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections4.ListUtils;
@@ -267,6 +268,10 @@ public class OlapTable extends Table {
 
     @SerializedName(value = "tableProperty")
     protected TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+
+    // the transactions that changed the table within its time travel retention period, for DESCRIBE HISTORY
+    @SerializedName(value = "commitHistory")
+    private TableCommitHistory commitHistory;
 
     @SerializedName(value = "maxColUniqueId")
     protected AtomicInteger maxColUniqueId = new AtomicInteger(-1);
@@ -3005,6 +3010,33 @@ public class OlapTable extends Table {
         for (PhysicalPartition physicalPartition : partition.getSubPartitions()) {
             physicalPartition.markHistoryFloor(physicalPartition.getVisibleVersionTime());
         }
+    }
+
+    public TableCommitHistory getCommitHistory() {
+        return commitHistory;
+    }
+
+    /** Records a transaction that changed the table; see {@link TableCommitHistory}. */
+    public void recordCommit(TableCommitHistory.Commit commit, long oldestTimeToKeep, int maxCommits) {
+        TableCommitHistory history = commitHistory;
+        if (history == null) {
+            history = new TableCommitHistory();
+            commitHistory = history;
+        }
+        history.record(commit, oldestTimeToKeep, maxCommits);
+    }
+
+    public void clearCommitHistory() {
+        commitHistory = null;
+    }
+
+    /** The latest time before which time travel cannot read some partition of the table, or 0. */
+    public long getHistoryFloorTime() {
+        long floor = 0;
+        for (PhysicalPartition physicalPartition : getAllPhysicalPartitions()) {
+            floor = Math.max(floor, physicalPartition.getHistoryFloorTime());
+        }
+        return floor;
     }
 
     /** Time travel cannot read the table as it was before {@code time}, such as the end of a schema change. */

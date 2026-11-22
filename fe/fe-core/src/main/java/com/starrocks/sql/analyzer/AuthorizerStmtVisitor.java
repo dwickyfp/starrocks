@@ -125,6 +125,7 @@ import com.starrocks.sql.ast.DelSqlBlackListStmt;
 import com.starrocks.sql.ast.DelSqlDigestBlackListStmt;
 import com.starrocks.sql.ast.DeleteStmt;
 import com.starrocks.sql.ast.DescStorageVolumeStmt;
+import com.starrocks.sql.ast.DescribeHistoryStmt;
 import com.starrocks.sql.ast.DescribeStmt;
 import com.starrocks.sql.ast.DropCatalogStmt;
 import com.starrocks.sql.ast.DropDbStmt;
@@ -170,6 +171,7 @@ import com.starrocks.sql.ast.RefreshConnectionsStmt;
 import com.starrocks.sql.ast.RefreshMaterializedViewStatement;
 import com.starrocks.sql.ast.RefreshTableStmt;
 import com.starrocks.sql.ast.RestoreStmt;
+import com.starrocks.sql.ast.RestoreTableStmt;
 import com.starrocks.sql.ast.ResumeRoutineLoadStmt;
 import com.starrocks.sql.ast.RevokeRoleStmt;
 import com.starrocks.sql.ast.SelectRelation;
@@ -2471,6 +2473,27 @@ public class AuthorizerStmtVisitor implements AstVisitorExtendInterface<Void, Co
 
     @Override
     public Void visitDescProcedureStatement(DescProcedureStmt statement, ConnectContext context) {
+        return null;
+    }
+
+    @Override
+    public Void visitDescribeHistoryStatement(DescribeHistoryStmt statement, ConnectContext context) {
+        com.starrocks.catalog.TableName tableName =
+                com.starrocks.catalog.TableName.fromTableRef(AnalyzerUtils.normalizedTableRef(statement.getTableRef(),
+                        context));
+        try {
+            Authorizer.checkTableAction(context, tableName, PrivilegeType.SELECT);
+        } catch (AccessDeniedException e) {
+            AccessDeniedException.reportAccessDenied(tableName.getCatalog(),
+                    context.getCurrentUserIdentity(), context.getCurrentRoleIds(),
+                    PrivilegeType.SELECT.name(), ObjectType.TABLE.name(), tableName.getTbl());
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitRestoreTableStatement(RestoreTableStmt statement, ConnectContext context) {
+        // every statement it runs is checked when it runs: CREATE TABLE on the database, SELECT and INSERT on the table
         return null;
     }
 

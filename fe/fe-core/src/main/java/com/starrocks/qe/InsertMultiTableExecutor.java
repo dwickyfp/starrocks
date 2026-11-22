@@ -51,13 +51,7 @@ public class InsertMultiTableExecutor {
         List<Target> targets = targets(stmt, caller);
         List<String> inserts = targets.stream().map(t -> toSql(stmt, t)).collect(Collectors.toList());
 
-        ConnectContext ctx = SimpleExecutor.createCallerQueryContext(caller,
-                Math.max(1, SimpleExecutor.remainingQueryTimeoutS(caller)));
-        ctx.setCurrentCatalog(caller.getCurrentCatalog());
-        ctx.setGlobalStateMgr(GlobalStateMgr.getCurrentState());
-        // The statements run with the caller's settings: strict mode, filter ratio, timeouts and so on.
-        ctx.setSessionVariable(caller.getSessionVariable().clone());
-        ctx.getSessionVariable().setEnableShortCircuit(false);
+        ConnectContext ctx = statementContext(caller);
         long callerTxnId = caller.getTxnId();
         ctx.setTxnId(callerTxnId);
         boolean ownTxn = callerTxnId == 0 && inserts.size() > 1;
@@ -99,6 +93,18 @@ public class InsertMultiTableExecutor {
             caller.setThreadLocalInfo();
         }
         caller.getState().setOk(rows, 0, "{" + String.join(", ", counts) + "}");
+    }
+
+    /** A context that runs statements for the caller, as the caller and with the caller's settings. */
+    static ConnectContext statementContext(ConnectContext caller) {
+        ConnectContext ctx = SimpleExecutor.createCallerQueryContext(caller,
+                Math.max(1, SimpleExecutor.remainingQueryTimeoutS(caller)));
+        ctx.setCurrentCatalog(caller.getCurrentCatalog());
+        ctx.setGlobalStateMgr(GlobalStateMgr.getCurrentState());
+        // The statements run with the caller's settings: strict mode, filter ratio, timeouts and so on.
+        ctx.setSessionVariable(caller.getSessionVariable().clone());
+        ctx.getSessionVariable().setEnableShortCircuit(false);
+        return ctx;
     }
 
     private static void checkState(ConnectContext ctx) {

@@ -38,6 +38,43 @@ INSERT INTO orders_restored SELECT * FROM orders AT(OFFSET => -600);
 
 A point in the future, or older than the retention period or the kept history, is an error, as is reading one table both now and with time travel (or at two points) in one statement. Views and materialized views cannot use time travel. Materialized view rewrite, the metadata scan rewrite of simple aggregations, the query cache and short-circuit reads are skipped for queries with time travel.
 
+## Table history
+
+`DESCRIBE HISTORY` lists the transactions that changed a table within its retention period, newest first:
+
+```sql
+DESCRIBE HISTORY orders;
+DESC HISTORY sales.orders LIMIT 10;
+```
+
+| Column | Description |
+| --- | --- |
+| `VERSION_TIME` | When the transaction became visible, in the session time zone. Time travel and `RESTORE TABLE` as of this time read the table with the transaction. |
+| `OPERATION` | What wrote it: `INSERT_INTO`, `INSERT_OVERWRITE`, `UPDATE`, `DELETE`, `MERGE_INTO` (also `INSERT INTO ... REPLACE WHERE`), `RESTORE`, `TRANSACTION` (an explicit transaction), `STREAM_LOAD`, `ROUTINE_LOAD`, `BROKER_LOAD`, and so on. |
+| `ROWS` | The rows the transaction wrote over all its tables, including the deleted rows of `MERGE INTO` and `RESTORE`; `NULL` when not known. |
+| `PARTITIONS` | The partitions of the table it changed. |
+| `TXN_ID`, `LABEL` | The transaction. |
+| `RESTORABLE` | Whether time travel can still read the table as of `VERSION_TIME`: `false` once it is older than the retention period or than a replacement of the data (see Limitations). |
+
+The history is recorded from the edit log on every FE, so followers show the same history. It needs the `SELECT` privilege on the table, and starts when retention is set for the table: transactions before then are not listed.
+
+## Restoring a table
+
+`RESTORE TABLE` writes the rows a table had at a point in time as a new version of the table:
+
+```sql
+RESTORE TABLE orders TO TIMESTAMP AS OF '2026-11-21 08:00:00';
+RESTORE TABLE orders TO AT(OFFSET => -3600);
+RESTORE TABLE orders TO BEFORE(TIMESTAMP => '2026-11-21 08:00:00');
+```
+
+The point is resolved as for a query. The affected row count is the number of rows restored. The statement copies those rows into a staging table, as one statement cannot read a table both now and with time travel, then writes them into the table in one transaction, and drops the staging table. If it fails, the table is unchanged.
+
+- On a Primary Key table, the write deletes the rows added since the point and writes back the old ones, like `INSERT INTO ... REPLACE WHERE TRUE`. Time travel still reads the table as it was before the restore, so a restore can be undone with another `RESTORE TABLE` to a point before it.
+- On other tables, the write is an `INSERT OVERWRITE`, after which time travel cannot read the table as it was before the restore.
+
+`RESTORE TABLE` needs the `CREATE TABLE` privilege on the database, and `SELECT` and `INSERT` on the table. It cannot run in an explicit transaction. Generated columns are computed again; `AUTO_INCREMENT` columns keep their old values. Partitions dropped since the point are not restored.
+
 ## Recovering a dropped table
 
 `UNDROP TABLE`, `UNDROP DATABASE` and `UNDROP PARTITION ... FROM` are the Snowflake names of [RECOVER](../sql-reference/sql-statements/backup_restore/RECOVER.md). A dropped object can be recovered for `catalog_trash_expire_second`, not for `data_retention_time_in_days`.

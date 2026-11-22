@@ -531,6 +531,14 @@ public interface AstVisitorExtendInterface<R, C> extends AstVisitor<R, C> {
         return visitStatement(statement, context);
     }
 
+    default R visitDescribeHistoryStatement(DescribeHistoryStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    default R visitRestoreTableStatement(RestoreTableStmt statement, C context) {
+        return visitStatement(statement, context);
+    }
+
     // ---------------------------------------- FailPoint Statement ----------------------------------------------------
     default R visitUpdateFailPointStatusStatement(UpdateFailPointStatusStatement statement, C context) {
         return visitStatement(statement, context);

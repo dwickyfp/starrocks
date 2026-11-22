@@ -171,6 +171,7 @@ import com.starrocks.sql.ast.AdminShowReplicaStatusStmt;
 import com.starrocks.sql.ast.AdminShowTabletStatusStmt;
 import com.starrocks.sql.ast.AstVisitorExtendInterface;
 import com.starrocks.sql.ast.DescStorageVolumeStmt;
+import com.starrocks.sql.ast.DescribeHistoryStmt;
 import com.starrocks.sql.ast.DescribeStmt;
 import com.starrocks.sql.ast.FunctionArgsDef;
 import com.starrocks.sql.ast.FunctionRef;
@@ -3385,6 +3386,12 @@ public class ShowExecutor {
                 rows.add(Lists.newArrayList(storageVolumeName));
             }
             return new ShowResultSet(showResultMetaFactory.getMetadata(statement), rows);
+        }
+
+        @Override
+        public ShowResultSet visitDescribeHistoryStatement(DescribeHistoryStmt statement, ConnectContext context) {
+            return new ShowResultSet(showResultMetaFactory.getMetadata(statement),
+                    TableHistoryExecutor.describe(statement, context));
         }
 
         @Override

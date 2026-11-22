@@ -105,6 +105,7 @@ public class OlapTableTxnLogApplier implements TransactionLogApplier {
         List<Long> dictContentIdentities = Lists.newArrayList();
 
         long maxPartitionVersionTime = -1;
+        int visiblePartitions = 0;
 
         for (PartitionCommitInfo partitionCommitInfo : commitInfo.getIdToPartitionCommitInfo().values()) {
             long partitionId = partitionCommitInfo.getPhysicalPartitionId();
@@ -185,6 +186,7 @@ public class OlapTableTxnLogApplier implements TransactionLogApplier {
             long versionTime = partitionCommitInfo.getVersionTime();
             if (txnState.isVersionOverwrite()) {
                 if (partition.getVisibleVersion() < version) {
+                    visiblePartitions++;
                     TimeTravelRetention.onVersionVisible(table, partition, version, versionTime);
                     partition.updateVisibleVersion(version, versionTime, txnState.getTransactionId());
                     partition.setDataVersion(version); // data version == visible version in shared-nothing mode
@@ -194,6 +196,7 @@ public class OlapTableTxnLogApplier implements TransactionLogApplier {
                     partition.setVersionTxnType(txnState.getTransactionType());
                 }
             } else {
+                visiblePartitions++;
                 TimeTravelRetention.onVersionVisible(table, partition, version, versionTime);
                 partition.updateVisibleVersion(version, versionTime, txnState.getTransactionId());
                 partition.setDataVersion(version); // data version == visible version in shared-nothing mode
@@ -219,6 +222,9 @@ public class OlapTableTxnLogApplier implements TransactionLogApplier {
                 partition.updateLastUpdateTime(versionTime);
             }
             maxPartitionVersionTime = Math.max(maxPartitionVersionTime, versionTime);
+        }
+        if (visiblePartitions > 0 && txnState.isUserWriteSource()) {
+            TimeTravelRetention.onTableCommitVisible(table, txnState, visiblePartitions, maxPartitionVersionTime);
         }
 
         // TODO(murphy) don't invalidate all cache columns, only invalidate the columns that are changed

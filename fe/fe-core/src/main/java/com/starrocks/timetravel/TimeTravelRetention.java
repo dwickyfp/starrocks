@@ -19,8 +19,14 @@ import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.PhysicalPartition;
 import com.starrocks.common.Config;
 import com.starrocks.common.DdlException;
+import com.starrocks.load.loadv2.ManualLoadTxnCommitAttachment;
+import com.starrocks.load.routineload.RLTaskTxnCommitAttachment;
+import com.starrocks.load.streamload.StreamLoadTxnCommitAttachment;
 import com.starrocks.qe.GlobalVariable;
 import com.starrocks.sql.analyzer.SemanticException;
+import com.starrocks.transaction.InsertTxnCommitAttachment;
+import com.starrocks.transaction.TransactionState;
+import com.starrocks.transaction.TxnCommitAttachment;
 
 /**
  * How long tables keep their history for time travel: the table property data_retention_time_in_days when set,
@@ -73,5 +79,64 @@ public final class TimeTravelRetention {
         }
         partition.recordVersionHistory(version, versionTime, versionTime - days * DAY_MS,
                 Config.time_travel_max_versions_per_partition);
+    }
+
+    /**
+     * Called once per table when a transaction that changed {@code partitions} of its partitions becomes visible at
+     * {@code time}, on the leader and on replay alike, for DESCRIBE HISTORY.
+     */
+    public static void onTableCommitVisible(OlapTable table, TransactionState txn, int partitions, long time) {
+        if (!isSupported(table)) {
+            return;
+        }
+        int days = effectiveDays(table);
+        if (days <= 0) {
+            if (table.getCommitHistory() != null) {
+                table.clearCommitHistory();
+            }
+            return;
+        }
+        table.recordCommit(new TableCommitHistory.Commit(time, operation(txn), rows(txn.getTxnCommitAttachment()),
+                partitions, txn.getTransactionId(), txn.getLabel()), time - days * DAY_MS,
+                Config.time_travel_max_versions_per_partition);
+    }
+
+    static String operation(TransactionState txn) {
+        TxnCommitAttachment attachment = txn.getTxnCommitAttachment();
+        if (attachment instanceof InsertTxnCommitAttachment insert && insert.getOperation() != null) {
+            return insert.getOperation();
+        }
+        TransactionState.LoadJobSourceType source = txn.getSourceType();
+        if (source == null) {
+            return "UNKNOWN";
+        }
+        switch (source) {
+            case FRONTEND:
+            case INSERT_STREAMING:
+                return "INSERT_INTO";
+            case BACKEND_STREAMING:
+            case FRONTEND_STREAMING:
+            case MULTI_STATEMENT_STREAMING:
+                return "STREAM_LOAD";
+            case ROUTINE_LOAD_TASK:
+                return "ROUTINE_LOAD";
+            case BATCH_LOAD_JOB:
+                return "BROKER_LOAD";
+            default:
+                return source.name();
+        }
+    }
+
+    static long rows(TxnCommitAttachment attachment) {
+        if (attachment instanceof InsertTxnCommitAttachment insert) {
+            return insert.getLoadedRows();
+        } else if (attachment instanceof StreamLoadTxnCommitAttachment streamLoad) {
+            return streamLoad.getNumRowsNormal();
+        } else if (attachment instanceof RLTaskTxnCommitAttachment routineLoad) {
+            return routineLoad.getLoadedRows();
+        } else if (attachment instanceof ManualLoadTxnCommitAttachment manualLoad) {
+            return manualLoad.getLoadedRows();
+        }
+        return -1;
     }
 }

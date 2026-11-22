@@ -55,6 +55,7 @@ statement
     | recoverTableStatement
     | truncateTableStatement
     | showTableStatement
+    | describeHistoryStatement
     | descTableStatement
     | showTableStatusStatement
     | showColumnStatement
@@ -264,6 +265,7 @@ statement
     | cancelBackupStatement
     | showBackupStatement
     | restoreStatement
+    | restoreTableStatement
     | cancelRestoreStatement
     | showRestoreStatement
     | showSnapshotStatement
@@ -655,6 +657,11 @@ showAlterStatement
 
 descTableStatement
     : (DESC | DESCRIBE) ((table=qualifiedName ALL?) | (FILES propertyList))
+    ;
+
+// the transactions that changed a native table within its time travel retention period
+describeHistoryStatement
+    : (DESC | DESCRIBE) HISTORY qualifiedName (LIMIT limit=INTEGER_VALUE)?
     ;
 
 createTableLikeStatement
@@ -2192,6 +2199,11 @@ cancelBackupStatement
 
 showBackupStatement
     : SHOW BACKUP ((FROM | IN) identifier)? showPredicateClauses
+    ;
+
+// writes the rows a native table had at a point in time as a new version of the table
+restoreTableStatement
+    : RESTORE TABLE qualifiedName TO (periodType AS OF point=expression | timeTravelClause)
     ;
 
 restoreStatement

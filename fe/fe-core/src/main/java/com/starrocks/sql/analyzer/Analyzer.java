@@ -16,6 +16,7 @@ package com.starrocks.sql.analyzer;
 
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.InsertMultiTableExecutor;
+import com.starrocks.qe.TableHistoryExecutor;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.AddSqlBlackListStmt;
 import com.starrocks.sql.ast.AddSqlDigestBlackListStmt;
@@ -87,6 +88,7 @@ import com.starrocks.sql.ast.CreateViewStmt;
 import com.starrocks.sql.ast.DataCacheSelectStatement;
 import com.starrocks.sql.ast.DeleteStmt;
 import com.starrocks.sql.ast.DescStorageVolumeStmt;
+import com.starrocks.sql.ast.DescribeHistoryStmt;
 import com.starrocks.sql.ast.DropCatalogStmt;
 import com.starrocks.sql.ast.DropDataCacheRuleStmt;
 import com.starrocks.sql.ast.DropDbStmt;
@@ -124,6 +126,7 @@ import com.starrocks.sql.ast.RefreshDictionaryStmt;
 import com.starrocks.sql.ast.RefreshMaterializedViewStatement;
 import com.starrocks.sql.ast.RefreshTableStmt;
 import com.starrocks.sql.ast.RestoreStmt;
+import com.starrocks.sql.ast.RestoreTableStmt;
 import com.starrocks.sql.ast.ResumeRoutineLoadStmt;
 import com.starrocks.sql.ast.SetCatalogStmt;
 import com.starrocks.sql.ast.SetDefaultRoleStmt;
@@ -1358,6 +1361,19 @@ public class Analyzer {
         @Override
         public Void visitRollbackStatement(RollbackStmt statement, ConnectContext context) {
             TransactionAnalyzer.analyze(statement, context);
+            return null;
+        }
+
+        @Override
+        public Void visitDescribeHistoryStatement(DescribeHistoryStmt statement, ConnectContext context) {
+            TableHistoryExecutor.resolve(statement.getTableRef(), context, "DESCRIBE HISTORY");
+            return null;
+        }
+
+        @Override
+        public Void visitRestoreTableStatement(RestoreTableStmt statement, ConnectContext context) {
+            // Checks the table; the statements it runs are analyzed when they run.
+            TableHistoryExecutor.resolve(statement.getTableRef(), context, "RESTORE TABLE");
             return null;
         }
 

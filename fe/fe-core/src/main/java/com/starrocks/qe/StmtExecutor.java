@@ -217,6 +217,7 @@ import com.starrocks.sql.ast.PrepareStmt;
 import com.starrocks.sql.ast.QueryStatement;
 import com.starrocks.sql.ast.RefreshConnectionsStmt;
 import com.starrocks.sql.ast.RefreshMaterializedViewStatement;
+import com.starrocks.sql.ast.RestoreTableStmt;
 import com.starrocks.sql.ast.SetCatalogStmt;
 import com.starrocks.sql.ast.SetDefaultRoleStmt;
 import com.starrocks.sql.ast.SetRoleStmt;
@@ -1283,6 +1284,8 @@ public class StmtExecutor {
                 handleSetCatalogStmt();
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 handleCreateTableAsSelectStmt(beginTimeInNanoSecond);
+            } else if (parsedStmt instanceof RestoreTableStmt restoreTableStmt) {
+                TableHistoryExecutor.restore(restoreTableStmt, context);
             } else if (parsedStmt instanceof InsertMultiTableStmt insertMultiTableStmt) {
                 InsertMultiTableExecutor.execute(insertMultiTableStmt, context);
             } else if (parsedStmt instanceof DmlStmt dmlStmt) {
@@ -4074,6 +4077,10 @@ public class StmtExecutor {
                     }
                 } else {
                     attachment = new InsertTxnCommitAttachment(loadedRows);
+                }
+                if (attachment != null) {
+                    attachment.setOperation(context.getDmlOperationName() != null
+                            ? context.getDmlOperationName() : dmlType.name());
                 }
                 VisibleStateWaiter visibleWaiter = transactionMgr.retryCommitOnRateLimitExceeded(
                         database,

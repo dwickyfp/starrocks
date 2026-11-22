@@ -336,7 +336,8 @@ public class TransactionStmtExecutor {
                 transactionState.addLoadId(item.getLoadId());
             }
 
-            TxnCommitAttachment txnCommitAttachment = new InsertTxnCommitAttachment(loadedRows);
+            InsertTxnCommitAttachment txnCommitAttachment = new InsertTxnCommitAttachment(loadedRows);
+            txnCommitAttachment.setOperation("TRANSACTION");
             VisibleStateWaiter visibleWaiter = transactionMgr.retryCommitOnRateLimitExceeded(
                     database,
                     transactionId,
