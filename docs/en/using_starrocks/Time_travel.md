@@ -38,6 +38,10 @@ INSERT INTO orders_restored SELECT * FROM orders AT(OFFSET => -600);
 
 A point in the future, or older than the retention period or the kept history, is an error, as is reading one table both now and with time travel (or at two points) in one statement. Views and materialized views cannot use time travel. Materialized view rewrite, the metadata scan rewrite of simple aggregations, the query cache and short-circuit reads are skipped for queries with time travel.
 
+## Recovering a dropped table
+
+`UNDROP TABLE`, `UNDROP DATABASE` and `UNDROP PARTITION ... FROM` are the Snowflake names of [RECOVER](../sql-reference/sql-statements/backup_restore/RECOVER.md). A dropped object can be recovered for `catalog_trash_expire_second`, not for `data_retention_time_in_days`.
+
 ## How it works
 
 Each physical partition records the (version, time) at which its versions became visible, for tables with retention. A query resolves the point in time to the version of each partition and scans that version. BEs keep old versions for `tablet_rowset_stale_sweep_time_sec`, which the leader FE raises to the longest retention (see `enable_time_travel_be_config_sync`). This raises disk usage on all BEs, since that BE configuration is not per table.
@@ -45,6 +49,6 @@ Each physical partition records the (version, time) at which its versions became
 ## Limitations
 
 - Shared-nothing clusters only.
-- The current schema is used: time travel across schema changes is not supported.
-- Partitions replaced since the point in time (`TRUNCATE`, `INSERT OVERWRITE`, temporary partition replacement) do not keep their history: the replacement partition reads as empty before it was created.
+- A partition whose data was replaced keeps no history from before the replacement: reading it as of an earlier point is an error. This applies to `TRUNCATE`, `INSERT OVERWRITE`, the replacement of temporary partitions (also by `OPTIMIZE` and partition merges) and schema changes that rewrite the data. Reading it as of a later point works.
+- The current schema is used.
 - `FOR VERSION AS OF` is not supported on native tables.
