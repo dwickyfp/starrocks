@@ -84,6 +84,11 @@ public final class TimeTravelResolver {
         if (point >= partition.getVisibleVersionTime()) {
             return partition.getVisibleVersion();
         }
+        if (point < partition.getHistoryFloorTime()) {
+            throw new SemanticException("Time travel point %s on table %s is before %s, when its data was replaced "
+                    + "(TRUNCATE, INSERT OVERWRITE, a replace of temporary partitions or a schema change): time travel "
+                    + "cannot read it before then", format(point), tableName, format(partition.getHistoryFloorTime()));
+        }
         VersionHistory history = partition.getVersionHistory();
         long version = history == null ? -1 : history.versionAt(point);
         if (version > 0) {

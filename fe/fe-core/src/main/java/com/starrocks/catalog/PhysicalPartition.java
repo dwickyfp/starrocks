@@ -217,6 +217,11 @@ public class PhysicalPartition extends MetaObject implements GsonPostProcessable
     @SerializedName(value = "versionHistory")
     private volatile VersionHistory versionHistory;
 
+    // Time travel cannot read this partition as it was before this time (epoch ms): its data was replaced then, by
+    // TRUNCATE, INSERT OVERWRITE, a replace of temporary partitions or a schema change. 0 when it never was.
+    @SerializedName(value = "historyFloorTime")
+    private volatile long historyFloorTime;
+
     @SerializedName(value = "bucketNum")
     private int bucketNum = 0;
     
@@ -453,6 +458,17 @@ public class PhysicalPartition extends MetaObject implements GsonPostProcessable
 
     public VersionHistory getVersionHistory() {
         return versionHistory;
+    }
+
+    public long getHistoryFloorTime() {
+        return historyFloorTime;
+    }
+
+    /** Marks that the data of this partition was replaced at {@code time}, which time travel cannot read before. */
+    public void markHistoryFloor(long time) {
+        if (time > historyFloorTime) {
+            historyFloorTime = time;
+        }
     }
 
     public void clearVersionHistory() {

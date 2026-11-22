@@ -451,8 +451,9 @@ alterDatabaseRenameStatement
     : ALTER DATABASE identifier RENAME identifier
     ;
 
+// UNDROP is the Snowflake name of RECOVER
 recoverDbStmt
-    : RECOVER (DATABASE | SCHEMA) identifier
+    : (RECOVER | UNDROP) (DATABASE | SCHEMA) identifier
     ;
 
 showDataStmt
@@ -667,7 +668,7 @@ showIndexStatement
     ;
 
 recoverTableStatement
-    : RECOVER TABLE qualifiedName
+    : (RECOVER | UNDROP) TABLE qualifiedName
     ;
 
 truncateTableStatement
@@ -684,7 +685,7 @@ showPartitionsStatement
     ;
 
 recoverPartitionStatement
-    : RECOVER PARTITION identifier FROM table=qualifiedName
+    : (RECOVER | UNDROP) PARTITION identifier FROM table=qualifiedName
     ;
 
 // ------------------------------------------- View Statement ----------------------------------------------------------
@@ -3542,7 +3543,7 @@ nonReserved
     | STREAM | SUM | STATUS | STOP | SKIP_KW | SKIP_HEADER | SWAP
     | STORAGE| STRING | STRING_AGG | STRUCT | STATS | SUBMIT | SUSPEND | SYNC | SYSTEM | SYSTEM_TIME
     | TABLES | TABLET | TABLETS | TAG | TASK | TASKS | CALLER | LANGUAGE | OWNER | PROCEDURES | TEMPORARY | TIMESTAMP | TIMESTAMPADD | TIMESTAMPDIFF | THAN | TIME | TIMES | TRANSACTION | TRANSFER | TRACE | TRANSLATE
-    | TRIM_SPACE | TRAILING | TRIM
+    | TRIM_SPACE | TRAILING | TRIM | UNDROP
     | TRIGGERS | TRUNCATE | TYPE | TYPES
     | UNBOUNDED | UNCOMMITTED | UNSET | UNINSTALL | USAGE | USER | USERS | UNLOCK
     | VALUE | VARBINARY | VARIABLES | VARIANT | VIEW | VIEWS | VERBOSE | VERSION | VOLUME | VOLUMES

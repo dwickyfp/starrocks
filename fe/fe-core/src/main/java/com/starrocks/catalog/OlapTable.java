@@ -2101,6 +2101,8 @@ public class OlapTable extends Table {
         });
 
         nameToPartition.put(newPartition.getName(), newPartition);
+        // TRUNCATE: the new partition starts empty at its creation time, carried in the journal with the partition
+        markHistoryFloor(newPartition);
 
         DataProperty dataProperty = partitionInfo.getDataProperty(oldPartition.getId());
         short replicationNum = partitionInfo.getReplicationNum(oldPartition.getId());
@@ -2948,6 +2950,7 @@ public class OlapTable extends Table {
             Partition partition = tempPartitions.getPartition(partitionName);
             // add
             addPartition(partition);
+            markHistoryFloor(partition);
             // drop
             tempPartitions.dropPartition(partitionName, false);
             // move the range from idToTempRange to idToRange
@@ -2981,6 +2984,7 @@ public class OlapTable extends Table {
         Partition partition = tempPartitions.getPartition(tempPartitionName);
         // add
         addPartition(partition);
+        markHistoryFloor(partition);
         // drop
         tempPartitions.dropPartition(tempPartitionName, false);
 
@@ -2989,6 +2993,24 @@ public class OlapTable extends Table {
 
         for (Column column : getColumns()) {
             IDictManager.getInstance().removeGlobalDict(this, column.getColumnId());
+        }
+    }
+
+    /**
+     * Time travel cannot read a partition that replaced another one as it was before it took its place. The time
+     * used is the visible version time of the new partition (its creation, or the commit of the load that filled it),
+     * which the journal carries, so the leader and its followers mark the same time.
+     */
+    private static void markHistoryFloor(Partition partition) {
+        for (PhysicalPartition physicalPartition : partition.getSubPartitions()) {
+            physicalPartition.markHistoryFloor(physicalPartition.getVisibleVersionTime());
+        }
+    }
+
+    /** Time travel cannot read the table as it was before {@code time}, such as the end of a schema change. */
+    public void markHistoryFloor(long time) {
+        for (PhysicalPartition physicalPartition : getAllPhysicalPartitions()) {
+            physicalPartition.markHistoryFloor(time);
         }
     }
 

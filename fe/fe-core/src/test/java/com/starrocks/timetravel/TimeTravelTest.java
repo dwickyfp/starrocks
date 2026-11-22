@@ -32,6 +32,9 @@ import com.starrocks.qe.GlobalVariable;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.StatementPlanner;
+import com.starrocks.sql.ast.RecoverDbStmt;
+import com.starrocks.sql.ast.RecoverPartitionStmt;
+import com.starrocks.sql.ast.RecoverTableStmt;
 import com.starrocks.sql.ast.StatementBase;
 import com.starrocks.sql.optimizer.Utils;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalOlapScanOperator;
@@ -158,6 +161,55 @@ public class TimeTravelTest {
         Assertions.assertEquals(List.of(4L), scanVersions("SELECT * FROM kept"));
         Assertions.assertTrue(error("SELECT * FROM kept AT(OFFSET => -10700) a JOIN "
                 + "kept AT(OFFSET => -5400) b ON a.k = b.k").contains("two different points in time"));
+    }
+
+    @Test
+    public void testNoTimeTravelBeforeTheDataWasReplaced() throws Exception {
+        starRocksAssert.withTable("CREATE TABLE replaced (k INT, v INT) DUPLICATE KEY (k) DISTRIBUTED BY HASH(k) "
+                + "BUCKETS 1 PROPERTIES ('replication_num' = '1', 'data_retention_time_in_days' = '1')");
+        OlapTable replaced = table("replaced");
+        PhysicalPartition partition = partition(replaced);
+        partition.setVisibleVersion(1, base - 4 * HOUR);
+        publish(replaced, partition, 2, base - 3 * HOUR);
+        Assertions.assertEquals(List.of(1L),
+                scanVersions("SELECT * FROM replaced AT(TIMESTAMP => '" + at(base - 210 * 60_000L) + "')"));
+
+        // TRUNCATE replaces the partition with an empty one: its past is gone, not empty
+        starRocksAssert.getCtx().setThreadLocalInfo();
+        DDLStmtExecutor.execute(UtFrameUtils.parseStmtWithNewParser("TRUNCATE TABLE replaced", starRocksAssert.getCtx()),
+                starRocksAssert.getCtx());
+        PhysicalPartition truncated = partition(table("replaced"));
+        Assertions.assertNotEquals(partition.getId(), truncated.getId());
+        Assertions.assertEquals(truncated.getVisibleVersionTime(), truncated.getHistoryFloorTime());
+        String message = error("SELECT * FROM replaced AT(TIMESTAMP => '" + at(base - 150 * 60_000L) + "')");
+        Assertions.assertTrue(message.contains("when its data was replaced"), message);
+        // after it, the table reads as it is
+        Thread.sleep(2100);
+        Assertions.assertEquals(List.of(1L), scanVersions("SELECT * FROM replaced AT(TIMESTAMP => '"
+                + at(truncated.getHistoryFloorTime() + 1000) + "')"));
+
+        // a schema change marks the whole table
+        table("replaced").markHistoryFloor(base + HOUR);
+        Assertions.assertEquals(base + HOUR, partition(table("replaced")).getHistoryFloorTime());
+        table("replaced").markHistoryFloor(base);
+        Assertions.assertEquals(base + HOUR, partition(table("replaced")).getHistoryFloorTime(), "the floor only rises");
+    }
+
+    @Test
+    public void testUndropIsRecover() throws Exception {
+        ConnectContext ctx = starRocksAssert.getCtx();
+        Assertions.assertInstanceOf(RecoverTableStmt.class, UtFrameUtils.parseStmtWithNewParser("UNDROP TABLE tt.gone", ctx));
+        Assertions.assertInstanceOf(RecoverDbStmt.class, SqlParser.parse("UNDROP DATABASE gone_db",
+                ctx.getSessionVariable()).get(0));
+        Assertions.assertInstanceOf(RecoverPartitionStmt.class, SqlParser.parse("UNDROP PARTITION p1 FROM tt.kept",
+                ctx.getSessionVariable()).get(0));
+
+        starRocksAssert.withTable("CREATE TABLE dropped_one (k INT) DUPLICATE KEY (k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1')");
+        starRocksAssert.dropTable("dropped_one");
+        Assertions.assertNull(GlobalStateMgr.getCurrentState().getLocalMetastore().getTable("tt", "dropped_one"));
+        DDLStmtExecutor.execute(UtFrameUtils.parseStmtWithNewParser("UNDROP TABLE dropped_one", ctx), ctx);
+        Assertions.assertNotNull(GlobalStateMgr.getCurrentState().getLocalMetastore().getTable("tt", "dropped_one"));
     }
 
     @Test
