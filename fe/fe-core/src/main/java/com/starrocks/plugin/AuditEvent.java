@@ -150,6 +150,9 @@ public class AuditEvent {
     public String warehouse = WarehouseManager.DEFAULT_WAREHOUSE_NAME;
     @AuditField(value = "CNGroup")
     public String cnGroup = "";
+    // null when the session has no query tag, so that the field is left out of the audit log
+    @AuditField(value = "QueryTag", ignore_zero = true)
+    public String queryTag;
 
     // Materialized View usage info
     @AuditField(value = "CandidateMVs", ignore_zero = true)
@@ -449,6 +452,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setWarehouse(String warehouse) {
             auditEvent.warehouse = warehouse;
+            return this;
+        }
+
+        public AuditEventBuilder setQueryTag(String queryTag) {
+            auditEvent.queryTag = queryTag == null || queryTag.isEmpty() ? null : queryTag;
             return this;
         }
 

@@ -115,6 +115,7 @@ import com.starrocks.sql.ast.ShowStorageVolumesStmt;
 import com.starrocks.sql.ast.ShowStreamLoadStmt;
 import com.starrocks.sql.ast.ShowTableStatusStmt;
 import com.starrocks.sql.ast.ShowTableStmt;
+import com.starrocks.sql.ast.ShowTablesHistoryStmt;
 import com.starrocks.sql.ast.ShowTabletStmt;
 import com.starrocks.sql.ast.ShowTemporaryTableStmt;
 import com.starrocks.sql.ast.ShowTransactionStmt;
@@ -457,6 +458,10 @@ public class ShowResultMetaFactory implements AstVisitorExtendInterface<ShowResu
                 new Column("Tables_in_" + statement.getDb(), TypeFactory.createVarcharType(20)));
         if (statement.isVerbose()) {
             builder.addColumn(new Column("Table_type", TypeFactory.createVarcharType(20)));
+        }
+        if (statement instanceof ShowTablesHistoryStmt) {
+            builder.addColumn(new Column("Dropped_on", TypeFactory.createVarcharType(20)));
+            builder.addColumn(new Column("Recoverable", TypeFactory.createVarcharType(20)));
         }
         return builder.build();
     }

@@ -72,6 +72,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -1391,6 +1392,27 @@ public class CatalogRecycleBin extends LeaderDaemon implements Writable, MemoryT
         } catch (InterruptedException e) {
             LOG.warn("Failed to execute runAfterCatalogReady", e);
         }
+    }
+
+    /**
+     * A dropped table that is still in the recycle bin.
+     */
+    public record RecycledTable(String name, long tableId, String mysqlType, long dropTimeMs, boolean recoverable) {
+    }
+
+    /**
+     * Returns the dropped tables of a database that are still in the recycle bin, the most recently dropped first.
+     */
+    public synchronized List<RecycledTable> getRecycledTables(long dbId) {
+        List<RecycledTable> tables = new ArrayList<>();
+        for (Map.Entry<Long, RecycleTableInfo> entry : idToTableInfo.row(dbId).entrySet()) {
+            Table table = entry.getValue().getTable();
+            Long dropTime = idToRecycleTime.get(entry.getKey());
+            tables.add(new RecycledTable(table.getName(), entry.getKey(), table.getMysqlType(),
+                    dropTime == null ? 0 : dropTime, entry.getValue().isRecoverable()));
+        }
+        tables.sort(Comparator.comparingLong(RecycledTable::dropTimeMs).reversed());
+        return tables;
     }
 
     public synchronized List<List<String>> getCatalogRecycleBinInfo() {

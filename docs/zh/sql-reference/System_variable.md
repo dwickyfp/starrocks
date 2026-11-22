@@ -1610,6 +1610,12 @@ FROM test;
 * 默认值：300
 * 单位：秒
 
+### query_tag
+
+* 描述：会话中语句的自定义标签，类似 Snowflake 的 `QUERY_TAG`。标签非空时，语句的审计日志中会包含 `QueryTag` 字段。可以通过 `SET_VAR` Hint 为单条语句设置，也可以作为 Task 的选项为每次运行设置。
+* 默认值：""
+* 类型：String
+
 ### query_timeout
 
 * 描述：用于设置查询超时时间，单位为秒。该变量会作用于当前连接中所有的查询语句。从 v3.4.0 起，`query_timeout` 不再适用于涉及 INSERT 的操作（例如，UPDATE、DELETE、CTAS、物化视图刷新、统计数据收集和 PIPE）。

@@ -35,6 +35,8 @@ public class SelectListItem implements ParseNode {
 
     private final List<String> excludedColumns;
 
+    private final StarModifiers starModifiers;
+
     public SelectListItem(Expr expr, String alias) {
         this(expr, alias, NodePosition.ZERO);
     }
@@ -51,14 +53,21 @@ public class SelectListItem implements ParseNode {
         this.tblName = null;
         this.isStar = false;
         this.excludedColumns = Collections.emptyList();
+        this.starModifiers = StarModifiers.NONE;
     }
 
     public SelectListItem(TableName tblName, NodePosition pos, List<String> excludedColumns) {
+        this(tblName, pos, excludedColumns, StarModifiers.NONE);
+    }
+
+    public SelectListItem(TableName tblName, NodePosition pos, List<String> excludedColumns,
+                          StarModifiers starModifiers) {
         this.pos = pos;
         this.expr = null;
         this.tblName = tblName;
         this.isStar = true;
         this.excludedColumns = excludedColumns;
+        this.starModifiers = starModifiers;
     }
 
     protected SelectListItem(SelectListItem other) {
@@ -72,6 +81,7 @@ public class SelectListItem implements ParseNode {
         isStar = other.isStar;
         alias = other.alias;
         this.excludedColumns = new ArrayList<>(other.excludedColumns);
+        this.starModifiers = other.starModifiers.copy();
     }
 
     @Override
@@ -110,6 +120,10 @@ public class SelectListItem implements ParseNode {
 
     public List<String> getExcludedColumns() {
         return excludedColumns;
+    }
+
+    public StarModifiers getStarModifiers() {
+        return starModifiers;
     }
 
 }

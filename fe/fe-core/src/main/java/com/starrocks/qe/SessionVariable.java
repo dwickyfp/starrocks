@@ -934,6 +934,8 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     public static final String ENABLE_SINGLE_NODE_SCHEDULE = "enable_single_node_schedule";
 
     public static final String CUSTOM_QUERY_ID = "custom_query_id";
+    // A free-form label of the statements of a session, written to the audit log (Snowflake's QUERY_TAG).
+    public static final String QUERY_TAG = "query_tag";
 
     // Access ORC columns by name. By default, columns in ORC files are accessed by
     // their ordinal position in the Hive table definition.
@@ -3958,6 +3960,9 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     @VarAttr(name = CUSTOM_QUERY_ID, flag = VariableMgr.SESSION_ONLY)
     private String customQueryId = "";
 
+    @VarAttr(name = QUERY_TAG)
+    private String queryTag = "";
+
     @VarAttr(name = CUSTOM_SESSION_NAME, flag = VariableMgr.SESSION_ONLY)
     private String customSessionName = "";
 
@@ -6702,6 +6707,14 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
 
     public void setCustomQueryId(String customQueryId) {
         this.customQueryId = customQueryId;
+    }
+
+    public String getQueryTag() {
+        return queryTag;
+    }
+
+    public void setQueryTag(String queryTag) {
+        this.queryTag = queryTag;
     }
 
     public String getCustomSessionName() {

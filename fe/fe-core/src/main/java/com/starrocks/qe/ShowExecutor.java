@@ -58,6 +58,7 @@ import com.starrocks.backup.Repository;
 import com.starrocks.backup.RestoreJob;
 import com.starrocks.catalog.BasicTable;
 import com.starrocks.catalog.Catalog;
+import com.starrocks.catalog.CatalogRecycleBin;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.ConnectorView;
 import com.starrocks.catalog.Database;
@@ -241,6 +242,7 @@ import com.starrocks.sql.ast.ShowStorageVolumesStmt;
 import com.starrocks.sql.ast.ShowStreamLoadStmt;
 import com.starrocks.sql.ast.ShowTableStatusStmt;
 import com.starrocks.sql.ast.ShowTableStmt;
+import com.starrocks.sql.ast.ShowTablesHistoryStmt;
 import com.starrocks.sql.ast.ShowTabletStmt;
 import com.starrocks.sql.ast.ShowTemporaryTableStmt;
 import com.starrocks.sql.ast.ShowTransactionStmt;
@@ -718,14 +720,41 @@ public class ShowExecutor {
                 }
             }
 
+            boolean history = statement instanceof ShowTablesHistoryStmt;
             for (Map.Entry<String, String> entry : tableMap.entrySet()) {
-                if (statement.isVerbose()) {
+                if (history) {
+                    rows.add(Lists.newArrayList(entry.getKey(), entry.getValue(), null, null));
+                } else if (statement.isVerbose()) {
                     rows.add(Lists.newArrayList(entry.getKey(), entry.getValue()));
                 } else {
                     rows.add(Lists.newArrayList(entry.getKey()));
                 }
             }
+            if (history && needLock) {
+                addRecycledTables(rows, context, catalogName, db, matcher);
+            }
             return new ShowResultSet(showResultMetaFactory.getMetadata(statement), rows);
+        }
+
+        /**
+         * Adds the dropped tables of a database that can still be found in the recycle bin, for a user with a
+         * privilege on or in the database.
+         */
+        private void addRecycledTables(List<List<String>> rows, ConnectContext context, String catalogName,
+                                       Database db, PatternMatcher matcher) {
+            try {
+                Authorizer.checkAnyActionOnOrInDb(context, catalogName, db.getFullName());
+            } catch (AccessDeniedException e) {
+                return;
+            }
+            for (CatalogRecycleBin.RecycledTable table :
+                    GlobalStateMgr.getCurrentState().getRecycleBin().getRecycledTables(db.getId())) {
+                if (matcher != null && !matcher.match(table.name())) {
+                    continue;
+                }
+                rows.add(Lists.newArrayList(table.name(), table.mysqlType(),
+                        TimeUtils.longToTimeString(table.dropTimeMs()), String.valueOf(table.recoverable())));
+            }
         }
 
         @Override

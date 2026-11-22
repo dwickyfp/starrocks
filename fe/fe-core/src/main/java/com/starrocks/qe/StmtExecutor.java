@@ -1041,9 +1041,11 @@ public class StmtExecutor {
             }
 
             // set warehouse for auditLog
+            // the query tag after the SET_VAR hints of the statement
             context.getAuditEventBuilder()
                     .setWarehouse(context.getCurrentWarehouseName())
-                    .setCNGroup(context.getCurrentComputeResourceName());
+                    .setCNGroup(context.getCurrentComputeResourceName())
+                    .setQueryTag(context.getSessionVariable().getQueryTag());
             LOG.debug("set warehouse {} for stmt: {}", context.getCurrentWarehouseName(), parsedStmt);
             if (parsedStmt.isExplain()) {
                 // reset the explain level to avoid the previous explain level affect the current query.

@@ -459,6 +459,7 @@ public class ConnectProcessor {
                 .setWarehouse(ctx.getCurrentWarehouseName())
                 .setCustomQueryId(ctx.getCustomQueryId())
                 .setCustomSessionName(ctx.getCustomSessionName())
+                .setQueryTag(ctx.getSessionVariable().getQueryTag())
                 .setCNGroup(ctx.getCurrentComputeResourceName());
     }
 

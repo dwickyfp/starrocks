@@ -30,6 +30,7 @@ import com.starrocks.sql.ast.ParseNode;
 import com.starrocks.sql.ast.Relation;
 import com.starrocks.sql.ast.SelectList;
 import com.starrocks.sql.ast.SelectListItem;
+import com.starrocks.sql.ast.StarModifiers;
 import com.starrocks.sql.ast.TreeNode;
 import com.starrocks.sql.ast.expression.AnalyticExpr;
 import com.starrocks.sql.ast.expression.CastExpr;
@@ -294,6 +295,12 @@ public class SelectAnalyzer {
                         throw new SemanticException("EXCLUDE clause removes all columns from %s", tableDesc);
                     }
                 }
+                StarModifiers modifiers = item.getStarModifiers();
+                if (!modifiers.isEmpty()) {
+                    analyzeStarModifiers(item, modifiers, fields, scope, analyzeState, outputExpressionBuilder,
+                            outputFields, outputExprInOrderByScope);
+                    fields = Collections.emptyList();
+                }
                 for (Field field : fields) {
                     int fieldIndex = scope.getRelationFields().indexOf(field);
                     /*
@@ -375,6 +382,68 @@ public class SelectAnalyzer {
         analyzeState.setOutputExprInOrderByScope(outputExprInOrderByScope);
         analyzeState.setOutputScope(new Scope(RelationId.anonymous(), new RelationFields(outputFields.build())));
         return outputExpressions;
+    }
+
+    /**
+     * Expands {@code [name.]* [ILIKE 'pattern'] [EXCLUDE (...)] [REPLACE (...)] [RENAME (...)]} given the fields
+     * left after EXCLUDE. ILIKE keeps the fields whose name matches. REPLACE outputs an expression under the name
+     * of the column it replaces, RENAME outputs a column under another name. Both can name only columns of the
+     * expansion. Replaced and renamed columns can be referred to by their output name in ORDER BY.
+     */
+    private void analyzeStarModifiers(SelectListItem item, StarModifiers modifiers, List<Field> fields, Scope scope,
+                                      AnalyzeState analyzeState, ImmutableList.Builder<Expr> outputExpressionBuilder,
+                                      ImmutableList.Builder<Field> outputFields, List<Integer> outputExprInOrderByScope) {
+        String tableDesc = item.getTblName() != null ? "table '" + item.getTblName() + "'" : "query scope";
+        List<Field> matched = fields.stream()
+                .filter(field -> modifiers.matchesIlike(field.getName()))
+                .collect(Collectors.toList());
+        if (matched.isEmpty()) {
+            throw new SemanticException("ILIKE '%s' matches no column of %s", modifiers.getIlikePattern(), tableDesc);
+        }
+        Map<String, Expr> replacements = new HashMap<>();
+        modifiers.getReplacements().forEach((name, expr) -> replacements.put(name.toLowerCase(), expr));
+        Map<String, String> renames = new HashMap<>();
+        modifiers.getRenames().forEach((name, newName) -> renames.put(name.toLowerCase(), newName));
+        Set<String> expanded = matched.stream().map(field -> field.getName().toLowerCase()).collect(Collectors.toSet());
+        verifyStarColumns("REPLACE", modifiers.getReplacements().keySet(), expanded, tableDesc);
+        verifyStarColumns("RENAME", modifiers.getRenames().keySet(), expanded, tableDesc);
+
+        int outputIndex = outputFields.build().size();
+        for (Field field : matched) {
+            String lowerName = field.getName().toLowerCase();
+            Expr replacement = replacements.remove(lowerName);
+            String newName = renames.get(lowerName);
+            if (replacement != null) {
+                analyzeExpression(replacement, analyzeState, scope);
+                outputExpressionBuilder.add(replacement);
+                outputFields.add(new Field(newName != null ? newName : field.getName(), replacement.getType(),
+                        null, replacement, true, replacement.isNullable()));
+                outputExprInOrderByScope.add(outputIndex);
+            } else {
+                int fieldIndex = scope.getRelationFields().indexOf(field);
+                FieldReference fieldReference = new FieldReference(fieldIndex,
+                        item.getTblName() == null ? null : item.getTblName().toString());
+                analyzeExpression(fieldReference, analyzeState, scope);
+                outputExpressionBuilder.add(fieldReference);
+                if (newName != null) {
+                    outputFields.add(new Field(newName, field.getType(), null, field.getOriginExpression(),
+                            true, field.isNullable()));
+                } else {
+                    outputFields.add(field);
+                }
+            }
+            outputIndex++;
+        }
+    }
+
+    private static void verifyStarColumns(String clause, Set<String> columns, Set<String> expanded, String tableDesc) {
+        List<String> missing = columns.stream()
+                .filter(column -> !expanded.contains(column.toLowerCase()))
+                .collect(Collectors.toList());
+        if (!missing.isEmpty()) {
+            throw new SemanticException("Column(s) %s in %s are not in the expansion of * in %s",
+                    missing, clause, tableDesc);
+        }
     }
 
     /**

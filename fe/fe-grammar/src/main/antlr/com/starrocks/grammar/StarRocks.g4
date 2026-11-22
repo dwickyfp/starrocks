@@ -622,7 +622,7 @@ indexType
     ;
 
 showTableStatement
-    : SHOW FULL? TABLES ((FROM | IN) db=qualifiedName)? (LIKE pattern=string)? showPredicateClauses
+    : SHOW FULL? TABLES HISTORY? ((FROM | IN) db=qualifiedName)? (LIKE pattern=string)? showPredicateClauses
     ;
 
 showTemporaryTablesStatement
@@ -2670,11 +2670,11 @@ querySpecification
     : SELECT setQuantifier? selectItem (',' selectItem)*
       fromClause
       ((WHERE where=expression)? (GROUP BY (groupByAll=ALL | groupingElement))? (HAVING having=expression)?
-       (QUALIFY qualifyFunction=selectItem comparisonOperator limit=INTEGER_VALUE)?)
+       (QUALIFY qualify=expression)?)
     ;
 
 fromClause
-    : (FROM relations pivotClause?)?                                                    #from
+    : (FROM relations (pivotClause | unpivotClause)?)?                                  #from
     | FROM DUAL                                                                         #dual
     ;
 
@@ -2700,12 +2700,34 @@ setQuantifier
 
 selectItem
     : expression (AS? (identifier | string))?                                            #selectSingle
-    | qualifiedName '.' ASTERISK_SYMBOL excludeClause?                                   #selectAll
-    | ASTERISK_SYMBOL excludeClause?                                                     #selectAll
+    | qualifiedName '.' ASTERISK_SYMBOL starModifiers                                    #selectAll
+    | ASTERISK_SYMBOL starModifiers                                                      #selectAll
+    ;
+
+starModifiers
+    : (ILIKE ilikePattern=string)? excludeClause? starReplaceClause? starRenameClause?
     ;
 
 excludeClause
     : ( EXCEPT | EXCLUDE ) '(' identifier (',' identifier)* ')'
+    | EXCLUDE identifier
+    ;
+
+starReplaceClause
+    : REPLACE '(' starReplaceItem (',' starReplaceItem)* ')'
+    ;
+
+starReplaceItem
+    : expression AS identifier
+    ;
+
+starRenameClause
+    : RENAME '(' starRenameItem (',' starRenameItem)* ')'
+    | RENAME starRenameItem
+    ;
+
+starRenameItem
+    : identifier AS identifier
     ;
 
 relations
@@ -2735,6 +2757,17 @@ relationPrimary
 pivotClause
     : PIVOT '(' pivotAggregationExpression (',' pivotAggregationExpression)*
         FOR (identifier | identifierList) IN '(' pivotValue (',' pivotValue)* ')' ')'
+    ;
+
+unpivotClause
+    : UNPIVOT ((INCLUDE | EXCLUDE) NULLS)?
+        '(' (valueColumn=identifier | valueColumns=identifierList) FOR nameColumn=identifier
+        IN '(' unpivotValue (',' unpivotValue)* ')' ')'
+        (AS? alias=identifier)?
+    ;
+
+unpivotValue
+    : (column=identifier | columns=identifierList) (AS? (label=identifier | labelString=string))?
     ;
 
 pivotAggregationExpression
@@ -2931,7 +2964,9 @@ predicateOperations [ParserRuleContext value]
     | NOT? IN '(' queryRelation ')'                                                       #inSubquery
     | NOT? IN '(' expressionList ')'                                                      #inList
     | NOT? BETWEEN lower = valueExpression AND upper = predicate                          #between
+    | NOT? (LIKE | ILIKE) quantifier=(ANY | ALL) '(' expressionList ')'                  #likeAnyAll
     | NOT? (LIKE | RLIKE | REGEXP) pattern=valueExpression                                #like
+    | NOT? ILIKE pattern=valueExpression                                                 #ilike
     ;
 
 valueExpression
@@ -2970,7 +3005,7 @@ primaryExpression
     | '(' expression ')'                                                                  #parenthesizedExpression
     | EXISTS '(' queryRelation ')'                                                        #exists
     | subquery                                                                            #subqueryExpression
-    | CAST '(' expression AS type ')'                                                     #cast
+    | (CAST | TRY_CAST) '(' expression AS type ')'                                        #cast
     | CONVERT '(' expression ',' type ')'                                                 #convert
     | CASE caseExpr=expression whenClause+ (ELSE elseExpression=expression)? END          #simpleCase
     | CASE whenClause+ (ELSE elseExpression=expression)? END                              #searchedCase
@@ -3513,7 +3548,7 @@ number
     ;
 
 nonReserved
-    : ACCESS | ACTIVE | ADVISOR | AFTER | AGGREGATE | AI | APPLY | ASYNC | AT_TIME_TRAVEL | AUTHORS | AVG | ADMIN | ANTI | AUTHENTICATION | AUTO_INCREMENT | AUTOMATED
+    : ACCESS | ACTIVE | ADVISOR | AFTER | AGGREGATE | AI | APPLY | ASYNC | AT_TIME_TRAVEL | AUTHORS | AVG | ADMIN | ANTI | ANY | AUTHENTICATION | AUTO_INCREMENT | AUTOMATED
     | ARRAY_AGG | ARRAY_AGG_DISTINCT | ASSERT_ROWS | AWARE
     | BACKEND | BACKENDS | BACKUP | BEGIN | BITMAP_UNION | BLACKLIST | BLACKHOLE | BINARY | BODY | BOOLEAN | BRANCH | BROKER | BUCKETS | BOTH
     | BUILTIN | BASE | BEFORE | BASELINE
@@ -3525,8 +3560,8 @@ nonReserved
     | FAILPOINT | FAILPOINTS | FIELDS | FILE | FILTER | FIRST | FLOOR | FOLLOWING | FORMAT | FN | FRONTEND | FRONTENDS | FOLLOWER | FREE
     | FUNCTIONS
     | GLOBAL | GRANTS | GROUP_CONCAT
-    | HASH | HISTOGRAM | HELP | HLL_UNION | HOST | HOUR | HOURS | HUB
-    | IDENTIFIED | IMAGE | IMPERSONATE | INACTIVE | INCLUDE | INCREMENTAL | INDEXES | INSTALL | INTEGRATION | INTEGRATIONS | INTERMEDIATE
+    | HASH | HISTOGRAM | HELP | HISTORY | HLL_UNION | HOST | HOUR | HOURS | HUB
+    | IDENTIFIED | ILIKE | IMAGE | IMPERSONATE | INACTIVE | INCLUDE | INCREMENTAL | INDEXES | INSTALL | INTEGRATION | INTEGRATIONS | INTERMEDIATE
     | INTERVAL | ISOLATION
     | JOB
     | LABEL | LAST | LEADER | LESS | LEVEL | LIST | LOCAL | LOCATION | LOGS | LOGICAL | LOW_PRIORITY | LOCK | LOCATIONS | LEADING
@@ -3544,8 +3579,8 @@ nonReserved
     | STORAGE| STRING | STRING_AGG | STRUCT | STATS | SUBMIT | SUSPEND | SYNC | SYSTEM | SYSTEM_TIME
     | TABLES | TABLET | TABLETS | TAG | TASK | TASKS | CALLER | LANGUAGE | OWNER | PROCEDURES | TEMPORARY | TIMESTAMP | TIMESTAMPADD | TIMESTAMPDIFF | THAN | TIME | TIMES | TRANSACTION | TRANSFER | TRACE | TRANSLATE
     | TRIM_SPACE | TRAILING | TRIM | UNDROP
-    | TRIGGERS | TRUNCATE | TYPE | TYPES
-    | UNBOUNDED | UNCOMMITTED | UNSET | UNINSTALL | USAGE | USER | USERS | UNLOCK
+    | TRIGGERS | TRUNCATE | TRY_CAST | TYPE | TYPES
+    | UNBOUNDED | UNCOMMITTED | UNPIVOT | UNSET | UNINSTALL | USAGE | USER | USERS | UNLOCK
     | VALUE | VARBINARY | VARIABLES | VARIANT | VIEW | VIEWS | VERBOSE | VERSION | VOLUME | VOLUMES
     | WARNINGS | WEEK | WHITELIST | WORK | WRITE  | WAREHOUSE | WAREHOUSES
     | YEAR

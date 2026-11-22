@@ -399,6 +399,7 @@ import com.starrocks.sql.ast.ShowStorageVolumesStmt;
 import com.starrocks.sql.ast.ShowStreamLoadStmt;
 import com.starrocks.sql.ast.ShowTableStatusStmt;
 import com.starrocks.sql.ast.ShowTableStmt;
+import com.starrocks.sql.ast.ShowTablesHistoryStmt;
 import com.starrocks.sql.ast.ShowTabletStmt;
 import com.starrocks.sql.ast.ShowTemporaryTableStmt;
 import com.starrocks.sql.ast.ShowTransactionStmt;
@@ -411,6 +412,7 @@ import com.starrocks.sql.ast.ShowWhiteListStmt;
 import com.starrocks.sql.ast.SingleItemListPartitionDesc;
 import com.starrocks.sql.ast.SingleRangePartitionDesc;
 import com.starrocks.sql.ast.SplitTabletClause;
+import com.starrocks.sql.ast.StarModifiers;
 import com.starrocks.sql.ast.StatementBase;
 import com.starrocks.sql.ast.StatisticsType;
 import com.starrocks.sql.ast.StopRoutineLoadStmt;
@@ -1579,7 +1581,11 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         NodePosition pos = createPos(context);
 
         ShowTableStmt showTableStmt;
-        if (context.pattern != null) {
+        if (context.HISTORY() != null) {
+            String pattern = context.pattern == null ? null : ((StringLiteral) visit(context.pattern)).getValue();
+            showTableStmt = new ShowTablesHistoryStmt(database, pattern,
+                    context.pattern == null ? getWhereFrom(context.showPredicateClauses()) : null, catalog, pos);
+        } else if (context.pattern != null) {
             StringLiteral stringLiteral = (StringLiteral) visit(context.pattern);
             showTableStmt = new ShowTableStmt(database, isVerbose, stringLiteral.getValue(), null, catalog, pos);
         } else {
@@ -6630,6 +6636,9 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
                 pivotRelation.setQuery(from);
                 from = pivotRelation;
             }
+            if (fromContext.unpivotClause() != null) {
+                from = buildUnpivot(from, fromContext.unpivotClause());
+            }
         }
 
         /*
@@ -6662,53 +6671,39 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
                 (Expr) visitIfPresent(context.having),
                 createPos(context));
 
-        // extend Query with QUALIFY to nested queries with filter.
-        if (context.qualifyFunction != null) {
-            resultSelectRelation.setOrderBy(new ArrayList<>());
-
-            // used to indicate nested query, represent the 'from' part of outer query.
-            SubqueryRelation subqueryRelation = new SubqueryRelation(new QueryStatement(resultSelectRelation));
-
-            // use virtual table name to indicate subquery.
-            TableName qualifyTableName = new TableName(null, "__QUALIFY__TABLE");
-            subqueryRelation.setAlias(qualifyTableName);
-
-            // use virtual item name to indicate column of window function.
-            SelectListItem windowFunction = selectItems.get(selectItems.size() - 1);
-            windowFunction.setAlias("__QUALIFY__VALUE");
-
-            long selectValue = Long.parseLong(context.limit.getText());
-
-            // need delete last item, because It shouldn't appear in result.
-            List<SelectListItem> selectItemsVirtual = Lists.newArrayList(selectItems);
-            selectItemsVirtual.remove(selectItemsVirtual.size() - 1);
-
-            List<SelectListItem> selectItemsOuter = new ArrayList<>();
-            for (SelectListItem item : selectItemsVirtual) {
-                if (item.getExpr() instanceof SlotRef) {
-                    SlotRef exprRef = (SlotRef) item.getExpr();
-                    String columnName = item.getAlias() == null ? exprRef.getColumnName() : item.getAlias();
-                    SlotRef resultSlotRef = new SlotRef(qualifyTableName, columnName);
-                    selectItemsOuter.add(new SelectListItem(resultSlotRef, null));
-                } else {
-                    throw new ParsingException("Can't support result other than column.");
-                }
-            }
-
-            // used to represent result, caused by we use nested query.
-            SelectList selectListOuter = new SelectList(selectItemsOuter, isDistinct);
-
-            // used to construct BinaryPredicate for QUALIFY.
-            IntLiteral rightValue = new IntLiteral(selectValue);
-            SlotRef leftSlotRef = new SlotRef(qualifyTableName, "__QUALIFY__VALUE");
-
-            BinaryType op = getComparisonOperator(((TerminalNode) context.comparisonOperator()
-                    .getChild(0)).getSymbol());
-            return new SelectRelation(selectListOuter, subqueryRelation,
-                    new BinaryPredicate(op, leftSlotRef, rightValue), null, null, createPos(context));
-        } else {
-            return resultSelectRelation;
+        if (context.qualify != null) {
+            return QualifyRewriter.rewrite(resultSelectRelation, (Expr) visit(context.qualify), createPos(context));
         }
+        return resultSelectRelation;
+    }
+
+    private Relation buildUnpivot(Relation from, com.starrocks.sql.parser.StarRocksParser.UnpivotClauseContext ctx) {
+        List<String> valueColumns = unpivotColumns(ctx.valueColumn, ctx.valueColumns);
+        String nameColumn = ((Identifier) visit(ctx.nameColumn)).getValue();
+        List<UnpivotRewriter.Value> values = new ArrayList<>();
+        for (com.starrocks.sql.parser.StarRocksParser.UnpivotValueContext valueCtx : ctx.unpivotValue()) {
+            List<String> columns = unpivotColumns(valueCtx.column, valueCtx.columns);
+            String label;
+            if (valueCtx.labelString != null) {
+                label = ((StringLiteral) visit(valueCtx.labelString)).getStringValue();
+            } else if (valueCtx.label != null) {
+                label = ((Identifier) visit(valueCtx.label)).getValue();
+            } else {
+                label = String.join("_", columns);
+            }
+            values.add(new UnpivotRewriter.Value(columns, label));
+        }
+        boolean includeNulls = ctx.INCLUDE() != null;
+        String alias = ctx.alias == null ? null : ((Identifier) visit(ctx.alias)).getValue();
+        return UnpivotRewriter.rewrite(from, valueColumns, nameColumn, values, includeNulls, alias, createPos(ctx));
+    }
+
+    private List<String> unpivotColumns(com.starrocks.sql.parser.StarRocksParser.IdentifierContext identifier,
+                                        com.starrocks.sql.parser.StarRocksParser.IdentifierListContext list) {
+        if (list != null) {
+            return list.identifier().stream().map(id -> ((Identifier) visit(id)).getValue()).collect(toList());
+        }
+        return List.of(((Identifier) visit(identifier)).getValue());
     }
 
     @Override
@@ -6727,17 +6722,55 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
     public ParseNode visitSelectAll(com.starrocks.sql.parser.StarRocksParser.SelectAllContext context) {
         NodePosition pos = createPos(context);
         List<String> excludedColumns = new ArrayList<>();
-        if (context.excludeClause() != null) {
-            com.starrocks.sql.parser.StarRocksParser.ExcludeClauseContext excludeCtx = context.excludeClause();
+        com.starrocks.sql.parser.StarRocksParser.StarModifiersContext modifiers = context.starModifiers();
+        if (modifiers.excludeClause() != null) {
+            com.starrocks.sql.parser.StarRocksParser.ExcludeClauseContext excludeCtx = modifiers.excludeClause();
             for (com.starrocks.sql.parser.StarRocksParser.IdentifierContext idCtx : excludeCtx.identifier()) {
                 excludedColumns.add(((Identifier) visit(idCtx)).getValue());
             }
         }
+        StarModifiers starModifiers = buildStarModifiers(modifiers);
         if (context.qualifiedName() != null) {
             QualifiedName qualifiedName = getQualifiedName(context.qualifiedName());
-            return new SelectListItem(qualifiedNameToTableName(qualifiedName), pos, excludedColumns);
+            return new SelectListItem(qualifiedNameToTableName(qualifiedName), pos, excludedColumns, starModifiers);
         }
-        return new SelectListItem(null, pos, excludedColumns);
+        return new SelectListItem(null, pos, excludedColumns, starModifiers);
+    }
+
+    private StarModifiers buildStarModifiers(com.starrocks.sql.parser.StarRocksParser.StarModifiersContext context) {
+        String ilikePattern = null;
+        if (context.ilikePattern != null) {
+            ilikePattern = ((StringLiteral) visit(context.ilikePattern)).getStringValue();
+        }
+        Map<String, Expr> replacements = new LinkedHashMap<>();
+        if (context.starReplaceClause() != null) {
+            for (com.starrocks.sql.parser.StarRocksParser.StarReplaceItemContext item :
+                    context.starReplaceClause().starReplaceItem()) {
+                String column = ((Identifier) visit(item.identifier())).getValue();
+                if (replacements.keySet().stream().anyMatch(column::equalsIgnoreCase)) {
+                    throw new ParsingException(String.format("Column '%s' is replaced more than once", column),
+                            createPos(item));
+                }
+                replacements.put(column, (Expr) visit(item.expression()));
+            }
+        }
+        Map<String, String> renames = new LinkedHashMap<>();
+        if (context.starRenameClause() != null) {
+            for (com.starrocks.sql.parser.StarRocksParser.StarRenameItemContext item :
+                    context.starRenameClause().starRenameItem()) {
+                String column = ((Identifier) visit(item.identifier(0))).getValue();
+                String newName = ((Identifier) visit(item.identifier(1))).getValue();
+                if (renames.keySet().stream().anyMatch(column::equalsIgnoreCase)) {
+                    throw new ParsingException(String.format("Column '%s' is renamed more than once", column),
+                            createPos(item));
+                }
+                renames.put(column, newName);
+            }
+        }
+        if (ilikePattern == null && replacements.isEmpty() && renames.isEmpty()) {
+            return StarModifiers.NONE;
+        }
+        return new StarModifiers(ilikePattern, replacements, renames);
     }
 
     @Override
@@ -8395,6 +8428,48 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         }
     }
 
+    /**
+     * {@code x [NOT] ILIKE p} is {@code [NOT] lower(x) LIKE lower(p)}.
+     */
+    @Override
+    public ParseNode visitIlike(com.starrocks.sql.parser.StarRocksParser.IlikeContext context) {
+        NodePosition pos = createPos(context);
+        Expr like = buildLike(true, (Expr) visit(context.value), (Expr) visit(context.pattern), pos);
+        return context.NOT() != null ? new CompoundPredicate(CompoundPredicate.Operator.NOT, like, null, pos) : like;
+    }
+
+    /**
+     * {@code x [NOT] LIKE|ILIKE ANY|ALL (p1, p2, ...)} is the OR (ANY) or AND (ALL) of {@code x [NOT] LIKE pi},
+     * as in Snowflake, Databricks and BigQuery.
+     */
+    @Override
+    public ParseNode visitLikeAnyAll(com.starrocks.sql.parser.StarRocksParser.LikeAnyAllContext context) {
+        NodePosition pos = createPos(context);
+        boolean ignoreCase = context.ILIKE() != null;
+        boolean any = context.ANY() != null;
+        Expr value = (Expr) visit(context.value);
+        List<Expr> patterns = visit(context.expressionList().expression(), Expr.class);
+        Expr result = null;
+        for (int i = 0; i < patterns.size(); i++) {
+            Expr operand = i == 0 ? value : value.clone();
+            Expr like = buildLike(ignoreCase, operand, patterns.get(i), pos);
+            if (context.NOT() != null) {
+                like = new CompoundPredicate(CompoundPredicate.Operator.NOT, like, null, pos);
+            }
+            result = result == null ? like : new CompoundPredicate(
+                    any ? CompoundPredicate.Operator.OR : CompoundPredicate.Operator.AND, result, like, pos);
+        }
+        return result;
+    }
+
+    private static Expr buildLike(boolean ignoreCase, Expr value, Expr pattern, NodePosition pos) {
+        if (ignoreCase) {
+            value = new FunctionCallExpr(FunctionSet.LOWER, Lists.newArrayList(value), pos);
+            pattern = new FunctionCallExpr(FunctionSet.LOWER, Lists.newArrayList(pattern), pos);
+        }
+        return new LikePredicate(LikePredicate.Operator.LIKE, value, pattern, pos);
+    }
+
     @Override
     public ParseNode visitSimpleCase(com.starrocks.sql.parser.StarRocksParser.SimpleCaseContext context) {
         return new CaseExpr(
@@ -8573,6 +8648,9 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             functionName = parts[1].toLowerCase();
         } else {
             functionName = fullFunctionName.toLowerCase();
+        }
+        if (!fullFunctionName.contains(".") && context.over() == null && CompatFunctions.NAMES.contains(functionName)) {
+            return CompatFunctions.rewrite(functionName, visit(context.expression(), Expr.class), pos);
         }
         if (functionName.equals(FunctionSet.ARRAY_GENERATE)) {
             if (context.expression().size() == 3) {

@@ -479,7 +479,8 @@ public final class InsertPreSplitHook {
         }
         SelectListItem first = items.get(0);
         if (items.size() == 1 && first.isStar()) {
-            if (first.getTblName() != null || !first.getExcludedColumns().isEmpty() || first.getAlias() != null) {
+            if (first.getTblName() != null || !first.getExcludedColumns().isEmpty() || first.getAlias() != null
+                    || !first.getStarModifiers().isEmpty()) {
                 return false;
             }
         } else {

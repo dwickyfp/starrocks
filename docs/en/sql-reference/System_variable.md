@@ -1854,6 +1854,12 @@ Used for compatibility with JDBC connection pool C3P0. No practical use.
 * **Default**: 300
 * **Unit**: Second
 
+### query_tag
+
+* **Description**: A free-form label of the statements of a session, like Snowflake's `QUERY_TAG`. A statement run with a non-empty tag has a `QueryTag` field with the tag in the audit log. The tag can be set for one statement with the `SET_VAR` hint, and for every run of a task as a task option.
+* **Default**: ""
+* **Data type**: String
+
 ### query_timeout
 
 * **Description**: Used to set the query timeout in "seconds". This variable will act on all query statements in the current connection. The default value is 300 seconds. From v3.4.0 onwards, `query_timeout` does not apply to operations involved INSERT (for example, UPDATE, DELETE, CTAS, materialized view refresh, statistics collection, and PIPE).
