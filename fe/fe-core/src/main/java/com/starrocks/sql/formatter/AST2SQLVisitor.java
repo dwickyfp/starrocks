@@ -400,7 +400,9 @@ public class AST2SQLVisitor extends AST2StringVisitor {
         StringBuilder sqlBuilder = new StringBuilder();
         sqlBuilder.append(node.getName().toSql());
 
-        if (StringUtils.isNotEmpty(node.getQueryPeriodString())) {
+        if (node.getChanges() != null) {
+            sqlBuilder.append(" ").append(node.getChanges().sql());
+        } else if (StringUtils.isNotEmpty(node.getQueryPeriodString())) {
             sqlBuilder.append(" ");
             sqlBuilder.append(StringUtils.trim(node.getQueryPeriodString()));
         } else if (node.getQueryPeriod() != null) {

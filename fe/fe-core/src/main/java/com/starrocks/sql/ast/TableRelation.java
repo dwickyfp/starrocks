@@ -73,6 +73,9 @@ public class TableRelation extends Relation {
     // time travel pins for the statement.
     private Map<Long, Long> pinnedScanVersions = null;
 
+    // CHANGES (INFORMATION => ...) AT (...) [END (...)]: reads the changes of the table instead of its rows
+    private TableChanges changes = null;
+
     public TableRelation(TableName name) {
         super(name.getPos());
         this.name = name;
@@ -261,6 +264,14 @@ public class TableRelation extends Relation {
 
     public Map<Long, Long> getPinnedScanVersions() {
         return pinnedScanVersions;
+    }
+
+    public TableChanges getChanges() {
+        return changes;
+    }
+
+    public void setChanges(TableChanges changes) {
+        this.changes = changes;
     }
 
     public void setPinnedScanVersions(Map<Long, Long> pinnedScanVersions) {

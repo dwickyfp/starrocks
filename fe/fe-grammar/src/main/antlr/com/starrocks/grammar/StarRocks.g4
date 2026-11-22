@@ -2688,6 +2688,14 @@ timeTravelClause
     | BEFORE '(' TIMESTAMP '=>' expression ')'
     ;
 
+// Snowflake CHANGES: the rows inserted, deleted and updated in a table between two points in time.
+// CHANGES(INFORMATION => DEFAULT | APPEND_ONLY) AT(...) | BEFORE(...) | AT(STREAM => 'name') [END(...)]
+changesClause
+    : CHANGES '(' information=identifier '=>' (DEFAULT | infoMode=identifier) ')'
+        (timeTravelClause | AT_TIME_TRAVEL '(' STREAM '=>' stream=string ')')
+        (END '(' (TIMESTAMP | OFFSET) '=>' endPoint=expression ')')?
+    ;
+
 periodType
     : SYSTEM_TIME
     | TIMESTAMP
@@ -2800,7 +2808,7 @@ relation
     ;
 
 relationPrimary
-    : qualifiedName (queryPeriod | timeTravelClause)? partitionNames? tabletList? replicaList? sampleClause? (
+    : qualifiedName (queryPeriod | timeTravelClause | changesClause)? partitionNames? tabletList? replicaList? sampleClause? (
         AS? alias=identifier)? bracketHint? (BEFORE ts=string)?                          #tableAtom
     | '(' VALUES rowConstructor (',' rowConstructor)* ')'
         (AS? alias=identifier columnAliases?)?                                          #inlineTable
@@ -3635,7 +3643,7 @@ nonReserved
     | REPOSITORIES | RECURSIVE
     | RESOURCE | RESOURCES | RESTORE | RESUME | RETAIN | RETENTION | RETURNS | RETRY | REVERT | ROLE | ROLES | ROLLUP | ROLLBACK | ROUTINE | ROW | RUNNING | RULE | RULES
     | SAMPLE | SCHEDULE | SCHEDULER | SECOND | SECURITY | SEPARATOR | SERIALIZABLE |SEMI | SESSION | SETS | SIGNED | SNAPSHOT | SNAPSHOTS | SPLIT | SQL | SQLBLACKLIST | START | STARROCKS
-    | STREAM | STREAMS | SUM | STATUS | STOP | SKIP_KW | SKIP_HEADER | SWAP
+    | STREAM | STREAMS | CHANGES | SUM | STATUS | STOP | SKIP_KW | SKIP_HEADER | SWAP
     | STORAGE| STRING | STRING_AGG | STRUCT | STATS | SUBMIT | SUSPEND | SYNC | SYSTEM | SYSTEM_TIME
     | TABLES | TABLET | TABLETS | TAG | TASK | TASKS | CALLER | LANGUAGE | OWNER | PROCEDURES | TEMPORARY | TIMESTAMP | TIMESTAMPADD | TIMESTAMPDIFF | THAN | TIME | TIMES | TRANSACTION | TRANSFER | TRACE | TRANSLATE
     | TRIM_SPACE | TRAILING | TRIM | UNDROP

@@ -1,6 +1,6 @@
 ---
 displayed_sidebar: docs
-description: "Track the rows inserted, updated and deleted in a native table since an offset with Snowflake style streams, and consume them with DML statements."
+description: "Track the rows inserted, updated and deleted in a native table with Snowflake style streams and the CHANGES clause, and consume them with DML statements."
 ---
 
 # Streams on native tables
@@ -52,7 +52,37 @@ The changes are the net changes between the offset and now:
 
 Only the partitions that changed since the offset are read.
 
-A stream cannot be read with `AT`, `BEFORE` or a `PARTITION` clause.
+A stream cannot be read with `AT`, `BEFORE` or a `PARTITION` clause. A view or a materialized view cannot read a stream.
+
+## The CHANGES clause
+
+The `CHANGES` clause reads the changes of a table between two points in time, without a stream and without an offset, for example for an audit or a backfill:
+
+```sql
+SELECT ... FROM [db.]table
+    CHANGES (INFORMATION => DEFAULT | APPEND_ONLY)
+    AT (TIMESTAMP => ...) | AT (OFFSET => ...) | BEFORE (TIMESTAMP => ...) | AT (STREAM => '[db.]stream')
+    [END (TIMESTAMP => ... | OFFSET => ...)]
+    [[AS] alias]
+```
+
+- It returns the rows a stream returns, with the same `METADATA$` columns: `INFORMATION => DEFAULT` the changes of a standard stream, `APPEND_ONLY` those of an append-only stream.
+- The changes start at the point of `AT` or `BEFORE`, or at the offset of a stream on the table with `AT (STREAM => ...)`, and end at the point of `END`, or now. Both points must be within the retention period of the table, and the end must not be before the start.
+- Reading the changes does not move the offset of any stream, also in a DML statement.
+- The table must keep its history, as for a stream. The changes cannot span a `TRUNCATE`, an `INSERT OVERWRITE` or a schema change of the table, and the rows of a partition dropped between the two points are not returned as deleted.
+- A `CHANGES` clause cannot be used with a `PARTITION` clause, in a view or in a materialized view. Its time travel points must be constants, as for [time travel](./Time_travel.md).
+
+```sql
+-- the changes of yesterday
+SELECT * FROM orders CHANGES (INFORMATION => DEFAULT)
+    AT (TIMESTAMP => '2026-11-21 00:00:00') END (TIMESTAMP => '2026-11-22 00:00:00');
+
+-- the rows added in the last hour
+SELECT * FROM events CHANGES (INFORMATION => APPEND_ONLY) AT (OFFSET => -3600);
+
+-- what the stream orders_changes would return, without consuming it
+SELECT count(*) FROM orders CHANGES (INFORMATION => DEFAULT) AT (STREAM => 'orders_changes');
+```
 
 ## Consuming a stream
 

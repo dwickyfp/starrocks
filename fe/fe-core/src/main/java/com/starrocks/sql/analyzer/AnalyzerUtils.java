@@ -1111,6 +1111,11 @@ public class AnalyzerUtils {
 
     public static void prohibitTimeTravelQuery(StatementBase statementBase, String operation) {
         for (TableRelation tableRelation : collectTableRelations(statementBase)) {
+            // a stream or a CHANGES clause, analyzed: relations that scan pinned versions of the table
+            if (tableRelation.getChanges() != null || tableRelation.getPinnedScanVersions() != null) {
+                throw new SemanticException("Do not support %s that reads a stream or a CHANGES clause of table %s",
+                        operation, tableRelation.getName().toSql());
+            }
             if (tableRelation.getQueryPeriod() == null && Strings.isNullOrEmpty(tableRelation.getQueryPeriodString())) {
                 continue;
             }

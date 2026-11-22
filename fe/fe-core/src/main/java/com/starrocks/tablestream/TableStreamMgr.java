@@ -28,8 +28,10 @@ import com.starrocks.sql.analyzer.AnalyzerUtils;
 import com.starrocks.sql.analyzer.SemanticException;
 import com.starrocks.sql.ast.KeysType;
 import com.starrocks.sql.ast.QueryStatement;
+import com.starrocks.sql.ast.TableChanges;
 import com.starrocks.sql.ast.TableRelation;
 import com.starrocks.sql.parser.SqlParser;
+import com.starrocks.timetravel.TimeTravelResolver;
 import com.starrocks.timetravel.TimeTravelRetention;
 import com.starrocks.transaction.InsertTxnCommitAttachment;
 import com.starrocks.transaction.TransactionCommitFailedException;
@@ -281,7 +283,14 @@ public final class TableStreamMgr {
             toTime = Math.max(now, fromTime);
         }
         String qualified = quote(db.getFullName()) + "." + quote(table.getName());
-        Changes changes = changes(stream, table, qualified, from, to);
+        QueryStatement query = parse(session, changes(stream.isAppendOnly(), table, qualified, from, to));
+        session.addStreamRead(new StreamOffsetUpdate(db.getId(), stream.getId(), stream.getName(), fromTime, from,
+                toTime, to));
+        return query;
+    }
+
+    /** The query of the changes, with the versions its relations scan pinned. */
+    private static QueryStatement parse(ConnectContext session, Changes changes) {
         QueryStatement query = (QueryStatement) SqlParser.parse(changes.sql(), session.getSessionVariable()).get(0);
         for (TableRelation relation : AnalyzerUtils.collectTableRelations(query)) {
             String alias = relation.getAlias() == null ? null : relation.getAlias().getTbl();
@@ -291,9 +300,46 @@ public final class TableStreamMgr {
                 relation.setPinnedScanVersions(changes.fromVersions());
             }
         }
-        session.addStreamRead(new StreamOffsetUpdate(db.getId(), stream.getId(), stream.getName(), fromTime, from,
-                toTime, to));
         return query;
+    }
+
+    /**
+     * The query of a CHANGES clause on the table: its changes from the start point of the clause (a point in time,
+     * or the offset of a stream on the table) to its end point, or now. It reads the table with time travel, as a
+     * stream does, and moves no offset.
+     */
+    public static QueryStatement changesOf(ConnectContext session, Database db, OlapTable table, TableChanges clause) {
+        String unsupported = unsupportedReason(table, clause.appendOnly());
+        if (unsupported != null) {
+            throw new SemanticException("CHANGES cannot read table %s: %s", table.getName(),
+                    unsupported.replace("a standard stream does: use APPEND_ONLY = TRUE",
+                            "INFORMATION => DEFAULT does: use INFORMATION => APPEND_ONLY"));
+        }
+        long now = System.currentTimeMillis();
+        TimeTravelResolver.Snapshot from;
+        if (clause.stream() != null) {
+            TableStream stream = resolve(clause.stream(), db.getFullName()).second;
+            if (stream.getTableId() != table.getId()) {
+                throw new SemanticException("Stream %s is not on table %s", stream.getName(), table.getName());
+            }
+            String stale = staleReason(stream, table, now);
+            if (stale != null) {
+                throw new SemanticException("Stream %s is stale: %s", stream.getName(), stale);
+            }
+            synchronized (stream) {
+                from = new TimeTravelResolver.Snapshot(stream.getOffsetTime(), new HashMap<>(stream.getOffsetVersions()));
+            }
+        } else {
+            from = TimeTravelResolver.snapshot(table, clause.start(), session);
+        }
+        TimeTravelResolver.Snapshot to = clause.end() == null ? new TimeTravelResolver.Snapshot(now,
+                currentVersions(table)) : TimeTravelResolver.snapshot(table, clause.end(), session);
+        if (to.time() < from.time()) {
+            throw new SemanticException("The END point of CHANGES on table %s is before its start point",
+                    table.getName());
+        }
+        String qualified = quote(db.getFullName()) + "." + quote(table.getName());
+        return parse(session, changes(clause.appendOnly(), table, qualified, from.versions(), to.versions()));
     }
 
     /** The changes a read of the stream returns: the SQL of the query and the versions its relations scan. */
@@ -307,7 +353,7 @@ public final class TableStreamMgr {
      * is an INSERT, one that is gone a DELETE, and one whose row changed both, with METADATA$ISUPDATE. A duplicate
      * key table compares the rows as a multiset. An append-only stream returns the INSERT rows only.
      */
-    public static Changes changes(TableStream stream, OlapTable table, String qualifiedTable,
+    public static Changes changes(boolean appendOnly, OlapTable table, String qualifiedTable,
                                   Map<Long, Long> from, Map<Long, Long> to) {
         List<String> changed = new ArrayList<>(new TreeSet<>(table.getAllPhysicalPartitions().stream()
                 .filter(p -> !version(from, p.getId()).equals(version(to, p.getId())))
@@ -340,13 +386,13 @@ public final class TableStreamMgr {
             List<Column> values = columns.stream().filter(c -> !c.isKey()).collect(Collectors.toList());
             String firstKey = quote(keys.get(0).getName());
             String insertSide = "SELECT " + list(columns, cur) + ", 'INSERT' AS " + quote(ACTION) + ", "
-                    + (stream.isAppendOnly() ? "FALSE" : quote(old) + "." + firstKey + " IS NOT NULL") + " AS "
+                    + (appendOnly ? "FALSE" : quote(old) + "." + firstKey + " IS NOT NULL") + " AS "
                     + quote(IS_UPDATE) + ", " + rowId(keys, cur, null) + " AS " + quote(ROW_ID)
                     + " FROM " + curTable + " LEFT JOIN " + oldTable + " ON " + join(keys, cur, old, "=")
                     + " WHERE " + quote(old) + "." + firstKey + " IS NULL"
-                    + (stream.isAppendOnly() || values.isEmpty() ? "" : " OR NOT (" + join(values, cur, old, "<=>")
+                    + (appendOnly || values.isEmpty() ? "" : " OR NOT (" + join(values, cur, old, "<=>")
                     + ")");
-            if (stream.isAppendOnly()) {
+            if (appendOnly) {
                 sql = insertSide;
             } else {
                 String deleteSide = "SELECT " + list(columns, old) + ", 'DELETE', " + quote(cur) + "." + firstKey
@@ -357,7 +403,7 @@ public final class TableStreamMgr {
             }
         } else {
             String insertSide = multisetSide(columns, curTable, oldTable, "INSERT");
-            sql = stream.isAppendOnly() ? insertSide
+            sql = appendOnly ? insertSide
                     : insertSide + " UNION ALL " + multisetSide(columns, oldTable, curTable, "DELETE");
         }
         return new Changes(sql, fromPins, to);

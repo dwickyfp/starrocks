@@ -427,6 +427,7 @@ import com.starrocks.sql.ast.SwapTableClause;
 import com.starrocks.sql.ast.SyncRefreshSchemeDesc;
 import com.starrocks.sql.ast.SyncStmt;
 import com.starrocks.sql.ast.SystemVariable;
+import com.starrocks.sql.ast.TableChanges;
 import com.starrocks.sql.ast.TableFunctionRelation;
 import com.starrocks.sql.ast.TableRef;
 import com.starrocks.sql.ast.TableRelation;
@@ -7198,6 +7199,10 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             tableRelation.setQueryPeriod(new QueryPeriod(QueryPeriod.PeriodType.TIMESTAMP, buildTimeTravelPoint(travel)));
         }
 
+        if (context.changesClause() != null) {
+            tableRelation.setChanges(buildChanges(context.changesClause()));
+        }
+
         if (context.BEFORE() != null) {
             String ts = ((StringLiteral) visit(context.ts)).getStringValue();
             SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -7265,6 +7270,39 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
             return new FunctionCallExpr("milliseconds_sub", Lists.newArrayList(value, new IntLiteral(1)), pos);
         }
         return value;
+    }
+
+    private TableChanges buildChanges(com.starrocks.sql.parser.StarRocksParser.ChangesClauseContext context) {
+        NodePosition pos = createPos(context);
+        String information = ((Identifier) visit(context.information)).getValue();
+        if (!information.equalsIgnoreCase("INFORMATION")) {
+            throw new ParsingException("CHANGES takes INFORMATION => DEFAULT | APPEND_ONLY, not " + information, pos);
+        }
+        boolean appendOnly = false;
+        if (context.infoMode != null) {
+            String mode = ((Identifier) visit(context.infoMode)).getValue();
+            if (!mode.equalsIgnoreCase("APPEND_ONLY")) {
+                throw new ParsingException("CHANGES INFORMATION is DEFAULT or APPEND_ONLY, not " + mode, pos);
+            }
+            appendOnly = true;
+        }
+        QueryPeriod start = null;
+        String stream = null;
+        if (context.timeTravelClause() != null) {
+            start = new QueryPeriod(QueryPeriod.PeriodType.TIMESTAMP, buildTimeTravelPoint(context.timeTravelClause()));
+        } else {
+            stream = ((StringLiteral) visit(context.stream)).getStringValue();
+        }
+        QueryPeriod end = null;
+        if (context.endPoint != null) {
+            Expr value = (Expr) visit(context.endPoint);
+            Expr point = context.OFFSET() == null ? value : new FunctionCallExpr("seconds_add",
+                    Lists.newArrayList(new FunctionCallExpr("now", Lists.newArrayList(), pos), value), pos);
+            end = new QueryPeriod(QueryPeriod.PeriodType.TIMESTAMP, point);
+        }
+        String sql = context.start.getInputStream().getText(
+                new org.antlr.v4.runtime.misc.Interval(context.start.getStartIndex(), context.stop.getStopIndex()));
+        return new TableChanges(appendOnly, start, stream, end, sql);
     }
 
     private String buildTimeTravelString(com.starrocks.sql.parser.StarRocksParser.TimeTravelClauseContext context) {

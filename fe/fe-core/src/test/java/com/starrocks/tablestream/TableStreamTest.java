@@ -29,6 +29,9 @@ import com.starrocks.planner.ScanNode;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.StatementPlanner;
+import com.starrocks.sql.analyzer.Analyzer;
+import com.starrocks.sql.analyzer.AnalyzerUtils;
+import com.starrocks.sql.analyzer.AstToSQLBuilder;
 import com.starrocks.sql.ast.StatementBase;
 import com.starrocks.sql.ast.stream.CreateTableStreamStmt;
 import com.starrocks.sql.ast.stream.DescTableStreamStmt;
@@ -278,23 +281,19 @@ public class TableStreamTest {
     @Test
     public void testChangeQueries() {
         OlapTable pk = table("spk");
-        TableStream standard = new TableStream(1, db.getId(), "x", pk.getId(), "spk", false, 0, "", null, Map.of(), 0);
         long partitionId = pk.getAllPhysicalPartitions().iterator().next().getId();
-        String sql = TableStreamMgr.changes(standard, pk, "`ts`.`spk`", Map.of(), Map.of(partitionId, 3L)).sql();
+        String sql = TableStreamMgr.changes(false, pk, "`ts`.`spk`", Map.of(), Map.of(partitionId, 3L)).sql();
         assertTrue(sql.contains("'INSERT' AS `METADATA$ACTION`"), sql);
         assertTrue(sql.contains("UNION ALL SELECT `__stream_old`.`k`"), sql);
         assertTrue(sql.contains("NOT (`__stream_cur`.`v` <=> `__stream_old`.`v` AND `__stream_cur`.`n` <=> "
                 + "`__stream_old`.`n`)"), sql);
-        TableStream appendOnly = new TableStream(1, db.getId(), "x", pk.getId(), "spk", true, 0, "", null, Map.of(),
-                0);
-        sql = TableStreamMgr.changes(appendOnly, pk, "`ts`.`spk`", Map.of(), Map.of(partitionId, 3L)).sql();
+        sql = TableStreamMgr.changes(true, pk, "`ts`.`spk`", Map.of(), Map.of(partitionId, 3L)).sql();
         assertFalse(sql.contains("UNION"), sql);
         assertFalse(sql.contains("<=>"), sql);
 
         OlapTable dup = table("sdup");
-        sql = TableStreamMgr.changes(new TableStream(1, db.getId(), "x", dup.getId(), "sdup", false, 0, "", null,
-                Map.of(), 0), dup, "`ts`.`sdup`", Map.of(), Map.of(dup.getAllPhysicalPartitions().iterator().next()
-                .getId(), 3L)).sql();
+        sql = TableStreamMgr.changes(false, dup, "`ts`.`sdup`", Map.of(),
+                Map.of(dup.getAllPhysicalPartitions().iterator().next().getId(), 3L)).sql();
         assertTrue(sql.contains("row_number() OVER (PARTITION BY `k`, `v`)"), sql);
         assertTrue(sql.contains("count(*) AS `__stream_n`"), sql);
 
@@ -304,10 +303,91 @@ public class TableStreamTest {
         Map<Long, Long> from = TableStreamMgr.currentVersions(day);
         Map<Long, Long> to = new java.util.HashMap<>(from);
         to.put(p2.getId(), p2.getVisibleVersion() + 1);
-        sql = TableStreamMgr.changes(new TableStream(1, db.getId(), "x", day.getId(), "sday", false, 0, "", null,
-                from, 0), day, "`ts`.`sday`", from, to).sql();
+        sql = TableStreamMgr.changes(false, day, "`ts`.`sday`", from, to).sql();
         assertTrue(sql.contains("PARTITION (`p2`)"), sql);
         assertFalse(sql.contains("`p1`"), sql);
+    }
+
+    @Test
+    public void testChangesClause() throws Exception {
+        starRocksAssert.withTable("CREATE TABLE schg (k INT NOT NULL, v INT) PRIMARY KEY (k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 " + RETAIN);
+        starRocksAssert.withTable("CREATE TABLE schg_hll (k INT, h HLL HLL_UNION) AGGREGATE KEY (k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 " + RETAIN);
+        OlapTable table = table("schg");
+        PhysicalPartition partition = table.getAllPhysicalPartitions().iterator().next();
+        partition.setVisibleVersion(1, base - 4 * HOUR);
+        publish(table, partition, 2, base - 3 * HOUR);
+        publish(table, partition, 3, base - 2 * HOUR);
+        String start = "AT(TIMESTAMP => '" + format(base - 7 * HOUR / 2) + "')";
+        String end = " END(TIMESTAMP => '" + format(base - 5 * HOUR / 2) + "')";
+        String changes = "SELECT * FROM schg CHANGES(INFORMATION => DEFAULT) ";
+
+        // from the version at the start to the version at the end, or now
+        assertEquals(List.of(1L, 2L), scanVersions(changes + start + end));
+        assertEquals(List.of(1L, 3L), scanVersions(changes + start));
+        assertEquals(List.of(1L, 3L), scanVersions("SELECT k, v, METADATA$ACTION, METADATA$ISUPDATE, METADATA$ROW_ID "
+                + "FROM ts.schg changes(information => default) " + start + " AS c WHERE c.METADATA$ACTION = 'DELETE'"));
+        assertEquals(List.of(2L, 3L), scanVersions(changes + "BEFORE(TIMESTAMP => '" + format(base - 2 * HOUR) + "')"));
+        assertEquals(List.of(1L, 2L), scanVersions(changes + start + " END(OFFSET => -9000)"));
+        String explain = plan(changes + start).getExplainString(TExplainLevel.NORMAL);
+        assertTrue(explain.contains("UNION"), explain);
+        explain = plan("SELECT * FROM schg CHANGES(INFORMATION => APPEND_ONLY) " + start)
+                .getExplainString(TExplainLevel.NORMAL);
+        assertFalse(explain.contains("UNION"), explain);
+        // nothing changed since the start: no data is read
+        explain = plan(changes + "AT(OFFSET => -60)").getExplainString(TExplainLevel.NORMAL);
+        assertTrue(explain.contains("EMPTYSET") || !explain.contains("OlapScanNode"), explain);
+        // it joins with the table itself
+        assertEquals(List.of(1L, 3L), scanVersions("SELECT c.k FROM schg CHANGES(INFORMATION => DEFAULT) " + start
+                + " c JOIN schg t ON c.k = t.k"));
+
+        // from the offset of a stream, which it does not move
+        create("CREATE STREAM schg_s ON TABLE schg BEFORE(TIMESTAMP => '" + format(base - 2 * HOUR) + "')");
+        ctx.clearStreamReads();
+        assertEquals(List.of(2L, 3L), scanVersions(changes + "AT(STREAM => 'schg_s')"));
+        ctx.consumeStatementStreamReads();
+        List<StreamOffsetUpdate> consumed = ctx.getConsumedStreamOffsets();
+        assertTrue(consumed == null || consumed.isEmpty(), String.valueOf(consumed));
+        assertEquals(Map.of(partition.getId(), 2L), stream("schg_s").getOffsetVersions());
+
+        // the clause prints as it was written
+        assertTrue(AstToSQLBuilder.toSQL(parse(changes + start + end)).contains("CHANGES(INFORMATION => DEFAULT) "
+                + start + end), AstToSQLBuilder.toSQL(parse(changes + start + end)));
+        Exception e = assertThrows(Exception.class, () -> AnalyzerUtils.prohibitTimeTravelQuery(parse(changes + start),
+                "materialized view"));
+        assertTrue(e.getMessage().contains("CHANGES clause"), e.getMessage());
+        // a view or a materialized view cannot keep the versions a CHANGES clause or a stream reads
+        for (String view : List.of("CREATE VIEW v_chg AS " + changes + start, "CREATE VIEW v_chg AS SELECT * FROM schg_s",
+                "CREATE MATERIALIZED VIEW mv_chg REFRESH ASYNC AS SELECT k FROM schg CHANGES(INFORMATION => DEFAULT) "
+                        + start)) {
+            ctx.setThreadLocalInfo();
+            Exception ve = assertThrows(Exception.class, () -> Analyzer.analyze(parse(view), ctx), view);
+            assertTrue(ve.getMessage().contains("reads a stream or a CHANGES clause"), ve.getMessage());
+        }
+
+        String[][] errors = {
+            {changes + "AT(TIMESTAMP => '" + format(base - 2 * HOUR) + "')" + end, "END point of CHANGES"},
+            {changes + "AT(OFFSET => -7200000)", "beyond its data retention time"},
+            {"SELECT * FROM schg CHANGES(INFORMATION => FOO) " + start, "DEFAULT or APPEND_ONLY, not FOO"},
+            {"SELECT * FROM schg CHANGES(FOO => DEFAULT) " + start, "CHANGES takes INFORMATION"},
+            {"SELECT * FROM splain CHANGES(INFORMATION => DEFAULT) AT(OFFSET => -60)", "time travel is not enabled"},
+            {"SELECT * FROM schg_hll CHANGES(INFORMATION => DEFAULT) AT(OFFSET => -60)",
+                "use INFORMATION => APPEND_ONLY"},
+            {"SELECT * FROM schg_s CHANGES(INFORMATION => DEFAULT) AT(OFFSET => -60)", "schg_s is a stream"},
+            {"SELECT * FROM sdup CHANGES(INFORMATION => DEFAULT) AT(STREAM => 'schg_s')",
+                "Stream schg_s is not on table sdup"},
+            {changes + "AT(STREAM => 'nosuch')", "Stream nosuch does not exist"},
+            {"SELECT * FROM schg PARTITION (schg) CHANGES(INFORMATION => DEFAULT) " + start, "Getting syntax error"},
+            {"SELECT * FROM nosuch CHANGES(INFORMATION => DEFAULT) " + start, "nosuch"},
+        };
+        for (String[] error : errors) {
+            Exception ex = assertThrows(Exception.class, () -> plan(error[0]), error[0]);
+            assertTrue(ex.getMessage().contains(error[1]), error[0] + ": " + ex.getMessage());
+        }
+        // the start of the history of the table is the start of its changes
+        assertEquals(List.of(1L, 3L), scanVersions("SELECT * FROM schg CHANGES(INFORMATION => APPEND_ONLY) AT(TIMESTAMP => '"
+                + format(base - 4 * HOUR) + "')"));
     }
 
     @Test

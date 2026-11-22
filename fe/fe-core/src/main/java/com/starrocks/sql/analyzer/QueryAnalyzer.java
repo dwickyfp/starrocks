@@ -902,6 +902,12 @@ public class QueryAnalyzer {
 
                 Table table = tableRelation.getTable();
                 String catalogName = resolveTableName.getCatalog();
+                if (tableRelation.getChanges() != null) {
+                    SubqueryRelation changesRelation = new SubqueryRelation(resolveChanges(tableRelation));
+                    changesRelation.setAlias(tableRelation.getAlias() != null ? tableRelation.getAlias()
+                            : new TableName(null, tableRelation.getName().getTbl()));
+                    return changesRelation;
+                }
                 if (table == null) {
                     QueryStatement streamQuery = resolveStream(tableRelation);
                     if (streamQuery != null) {
@@ -2886,6 +2892,28 @@ public class QueryAnalyzer {
                     stream.getName());
         }
         return TableStreamMgr.read(session, db, stream);
+    }
+
+    /** The query a CHANGES clause on a native table runs: the changes of the table between its points. */
+    private QueryStatement resolveChanges(TableRelation tableRelation) {
+        if (tableRelation.getPartitionNames() != null || tableRelation.getTabletIds() != null
+                && !tableRelation.getTabletIds().isEmpty()) {
+            throw new SemanticException("CHANGES cannot be used with a PARTITION or TABLET clause");
+        }
+        TableName name = tableRelation.getName();
+        name.normalization(session);
+        Database db = CatalogMgr.isInternalCatalog(name.getCatalog()) && !Strings.isNullOrEmpty(name.getDb())
+                ? GlobalStateMgr.getCurrentState().getLocalMetastore().getDb(name.getDb()) : null;
+        if (db != null && TableStreamMgr.get(db, name.getTbl()) != null
+                && GlobalStateMgr.getCurrentState().getLocalMetastore().getTable(db.getFullName(), name.getTbl()) == null) {
+            throw new SemanticException("CHANGES reads a table, but %s is a stream: read the stream itself, or the "
+                    + "CHANGES of its table AT(STREAM => '%s')", name.getTbl(), name.getTbl());
+        }
+        Table table = resolveTable(tableRelation);
+        if (!(table instanceof OlapTable olapTable) || table.isTemporaryTable() || db == null) {
+            throw new SemanticException("CHANGES is only supported on native tables, and %s is not one", name.getTbl());
+        }
+        return TableStreamMgr.changesOf(session, db, olapTable, tableRelation.getChanges());
     }
 
     public Table resolveTable(TableRelation tableRelation) {
