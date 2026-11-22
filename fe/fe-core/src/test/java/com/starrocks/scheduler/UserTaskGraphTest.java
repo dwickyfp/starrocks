@@ -14,12 +14,15 @@
 
 package com.starrocks.scheduler;
 
+import com.starrocks.catalog.View;
+import com.starrocks.common.StarRocksException;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.DDLStmtExecutor;
 import com.starrocks.qe.ShowExecutor;
 import com.starrocks.qe.ShowResultSet;
 import com.starrocks.scheduler.UserTaskGraphRunner.RunState;
 import com.starrocks.scheduler.UserTaskSpec.PredecessorsState;
+import com.starrocks.scheduler.persist.TaskRunStatus;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.ShowStmt;
 import com.starrocks.sql.ast.StatementBase;
@@ -259,6 +262,101 @@ public class UserTaskGraphTest extends MVTestBase {
         Assertions.assertEquals(RunState.SUCCEEDED, states.get("g_fin"), states.toString());
         Assertions.assertNotNull(starRocksAssert.getTable("ugraph", "gf_alert"));
         Assertions.assertNotNull(starRocksAssert.getTable("ugraph", "gf_fin"));
+    }
+
+    private static List<TaskRunStatus> history(String taskName) throws Exception {
+        TaskManager taskManager = GlobalStateMgr.getCurrentState().getTaskManager();
+        return taskManager.getTaskRunHistory().getInMemoryHistory().stream()
+                .filter(status -> taskName.equals(status.getTaskName()))
+                .toList();
+    }
+
+    private static List<TaskRunStatus> awaitHistory(String taskName, int count) throws Exception {
+        long deadline = System.currentTimeMillis() + 60_000;
+        List<TaskRunStatus> runs = history(taskName);
+        while (runs.size() < count && System.currentTimeMillis() < deadline) {
+            Thread.sleep(200);
+            runs = history(taskName);
+        }
+        return runs;
+    }
+
+    @Test
+    public void testAutoRetryAndSkippedRuns() throws Exception {
+        assertFails("CREATE TASK gr_bad_opt TASK_AUTO_RETRY_ATTEMPTS = 31 AS CREATE VIEW gr_x AS SELECT 1",
+                "at most 30");
+        run("CREATE TASK gr_root TASK_AUTO_RETRY_ATTEMPTS = 2 AS CREATE VIEW gr_root AS SELECT 1");
+        run("CREATE TASK gr_flaky AFTER gr_root AS CREATE VIEW gr_flaky AS SELECT k FROM gr_missing_table");
+        run("CREATE TASK gr_after AFTER gr_flaky AS CREATE VIEW gr_after AS SELECT 1");
+        for (String name : List.of("gr_flaky", "gr_after")) {
+            run("ALTER TASK " + name + " RESUME");
+        }
+        run("EXECUTE TASK gr_root");
+        Map<String, RunState> states = awaitGraphRun("gr_root");
+        Assertions.assertEquals(RunState.FAILED, states.get("gr_flaky"), states.toString());
+        Assertions.assertEquals(RunState.SKIPPED, states.get("gr_after"), states.toString());
+
+        List<TaskRunStatus> flaky = awaitHistory("gr_flaky", 3);
+        Assertions.assertEquals(3, flaky.size(), "the first run and 2 retries: " + flaky);
+        Assertions.assertTrue(flaky.stream().allMatch(s -> s.getState() == Constants.TaskRunState.FAILED), flaky.toString());
+        List<TaskRunStatus> skipped = awaitHistory("gr_after", 1);
+        Assertions.assertEquals(1, skipped.size(), skipped.toString());
+        Assertions.assertEquals(Constants.TaskRunState.SKIPPED, skipped.get(0).getState());
+        Assertions.assertTrue(skipped.get(0).getErrorMessage().contains("PREDECESSORS_STATE"),
+                skipped.get(0).getErrorMessage());
+
+        // a root that fails is retried too
+        run("CREATE TASK gr_root2 TASK_AUTO_RETRY_ATTEMPTS = 1 AS CREATE VIEW gr_root2 AS SELECT k FROM gr_missing");
+        run("EXECUTE TASK gr_root2");
+        Assertions.assertEquals(2, awaitHistory("gr_root2", 2).size());
+        run("ALTER TASK gr_root2 UNSET TASK_AUTO_RETRY_ATTEMPTS");
+        Assertions.assertNull(getTask("gr_root2").getTaskOption(UserTaskSpec.TASK_AUTO_RETRY_ATTEMPTS));
+    }
+
+    @Test
+    public void testReturnValues() throws Exception {
+        run("CREATE TASK gv_root AS $$\n" +
+                "  CREATE VIEW gv_r1 AS SELECT 1;\n" +
+                "  CALL SYSTEM$SET_RETURN_VALUE('it''s 42');\n" +
+                "$$");
+        run("CREATE TASK gv_child AFTER gv_root AS $$\n" +
+                "  CREATE VIEW gv_c1 AS SELECT SYSTEM$GET_PREDECESSOR_RETURN_VALUE() AS v;\n" +
+                "  CALL SYSTEM$SET_RETURN_VALUE('from child');\n" +
+                "$$");
+        run("CREATE TASK gv_fin FINALIZE = gv_root AS\n" +
+                "  CREATE VIEW gv_f1 AS SELECT SYSTEM$GET_PREDECESSOR_RETURN_VALUE('gv_child') AS v");
+        run("CREATE TASK gv_bad AFTER gv_root AS CREATE VIEW gv_b1 AS SELECT SYSTEM$GET_PREDECESSOR_RETURN_VALUE('nope')");
+        for (String name : List.of("gv_child", "gv_fin", "gv_bad")) {
+            run("ALTER TASK " + name + " RESUME");
+        }
+        run("EXECUTE TASK gv_root");
+        Map<String, RunState> states = awaitGraphRun("gv_root");
+        Assertions.assertEquals(RunState.SUCCEEDED, states.get("gv_child"), states.toString());
+        Assertions.assertEquals(RunState.SUCCEEDED, states.get("gv_fin"), states.toString());
+        Assertions.assertEquals(RunState.FAILED, states.get("gv_bad"), states.toString());
+
+        View child = (View) starRocksAssert.getTable("ugraph", "gv_c1");
+        Assertions.assertTrue(child.getInlineViewDef().contains("42"), child.getInlineViewDef());
+        View fin = (View) starRocksAssert.getTable("ugraph", "gv_f1");
+        Assertions.assertTrue(fin.getInlineViewDef().contains("from child"), fin.getInlineViewDef());
+        Assertions.assertEquals("it's 42", awaitHistory("gv_root", 1).get(0).getExtraMessage());
+        Assertions.assertTrue(awaitHistory("gv_bad", 1).get(0).getErrorMessage().contains("not a predecessor"));
+
+        // outside of a graph run
+        run("CREATE TASK gv_alone AS CREATE VIEW gv_a1 AS SELECT SYSTEM$GET_PREDECESSOR_RETURN_VALUE()");
+        run("EXECUTE TASK gv_alone");
+        Assertions.assertTrue(awaitHistory("gv_alone", 1).get(0).getErrorMessage().contains("only available"));
+    }
+
+    @Test
+    public void testBindPredecessorReturnValues() throws Exception {
+        Assertions.assertEquals("SELECT 'a''b', NULL, 'SYSTEM$GET_PREDECESSOR_RETURN_VALUE()'",
+                ScriptTaskRunProcessor.bindPredecessorReturnValues(
+                        "SELECT SYSTEM$GET_PREDECESSOR_RETURN_VALUE('t1'), system$get_predecessor_return_value(), "
+                                + "'SYSTEM$GET_PREDECESSOR_RETURN_VALUE()'",
+                        name -> "t1".equals(name) ? "a'b" : null));
+        Assertions.assertThrows(StarRocksException.class, () -> ScriptTaskRunProcessor.bindPredecessorReturnValues(
+                "SELECT SYSTEM$GET_PREDECESSOR_RETURN_VALUE(1)", name -> null));
     }
 
     @Test

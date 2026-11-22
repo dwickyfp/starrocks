@@ -145,6 +145,10 @@ public class TaskRunStatus implements Writable, GsonPostProcessable {
     @SerializedName("dataCacheSelectExtraMessage")
     private volatile String dataCacheSelectExtraMessage;
 
+    // The value a run of a Snowflake style task set with CALL SYSTEM$SET_RETURN_VALUE(...), shown as its extra message.
+    @SerializedName("userTaskReturnValue")
+    private volatile String userTaskReturnValue;
+
     @SerializedName("properties")
     private volatile Map<String, String> properties;
 
@@ -352,6 +356,8 @@ public class TaskRunStatus implements Writable, GsonPostProcessable {
             return GsonUtils.GSON.toJson(mvTaskRunExtraMessage);
         } else if (source == Constants.TaskSource.DATACACHE_SELECT) {
             return dataCacheSelectExtraMessage;
+        } else if (source == Constants.TaskSource.USER_SQL) {
+            return userTaskReturnValue == null ? "" : userTaskReturnValue;
         } else {
             return "";
         }
@@ -366,9 +372,19 @@ public class TaskRunStatus implements Writable, GsonPostProcessable {
                     GsonUtils.GSON.fromJson(extraMessage, MVTaskRunExtraMessage.class);
         } else if (source == Constants.TaskSource.DATACACHE_SELECT) {
             this.dataCacheSelectExtraMessage = extraMessage;
+        } else if (source == Constants.TaskSource.USER_SQL) {
+            this.userTaskReturnValue = extraMessage.isEmpty() ? null : extraMessage;
         } else {
             // do nothing
         }
+    }
+
+    public String getUserTaskReturnValue() {
+        return userTaskReturnValue;
+    }
+
+    public void setUserTaskReturnValue(String userTaskReturnValue) {
+        this.userTaskReturnValue = userTaskReturnValue;
     }
 
     public long getProcessStartTime() {
