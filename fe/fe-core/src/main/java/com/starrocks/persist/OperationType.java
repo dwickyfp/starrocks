@@ -760,6 +760,13 @@ public class OperationType {
     @IgnorableOnReplayFailed
     public static final short OP_DROP_PROCEDURE = 30002;
 
+    // Snowflake style streams on tables
+    @IgnorableOnReplayFailed
+    public static final short OP_CREATE_TABLE_STREAM = 30003;
+
+    @IgnorableOnReplayFailed
+    public static final short OP_DROP_TABLE_STREAM = 30004;
+
     public static final ImmutableSet<Short> IGNORABLE_OPERATIONS = buildIgnorableOperations();
 
     private static ImmutableSet<Short> buildIgnorableOperations() {
@@ -793,7 +800,9 @@ public class OperationType {
                     opType != OP_DROP_AI_PROVIDER &&
                     opType != OP_SET_DEFAULT_AI_PROVIDER &&
                     opType != OP_CREATE_PROCEDURE &&
-                    opType != OP_DROP_PROCEDURE) {
+                    opType != OP_DROP_PROCEDURE &&
+                    opType != OP_CREATE_TABLE_STREAM &&
+                    opType != OP_DROP_TABLE_STREAM) {
                 LOG.fatal("OperationType cannot use a value exceeding 20000, " +
                         "and an error will be reported if it exceeds : {} = {}", field.getName(), opType);
                 System.exit(-1);

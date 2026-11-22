@@ -277,6 +277,10 @@ import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.stream.CreateTableStreamStmt;
+import com.starrocks.sql.ast.stream.DescTableStreamStmt;
+import com.starrocks.sql.ast.stream.DropTableStreamStmt;
+import com.starrocks.sql.ast.stream.ShowTableStreamsStmt;
 import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
 import com.starrocks.sql.ast.task.CreateTaskStmt;
 import com.starrocks.sql.ast.task.DescTaskStmt;
@@ -1650,6 +1654,26 @@ public class RedirectStatus {
 
         @Override
         public RedirectStatus visitShowProceduresStatement(ShowProceduresStmt statement, Void context) {
+            return RedirectStatus.NO_FORWARD;
+        }
+
+        @Override
+        public RedirectStatus visitCreateTableStreamStatement(CreateTableStreamStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitDropTableStreamStatement(DropTableStreamStmt statement, Void context) {
+            return visitDDLStatement(statement, context);
+        }
+
+        @Override
+        public RedirectStatus visitShowTableStreamsStatement(ShowTableStreamsStmt statement, Void context) {
+            return RedirectStatus.NO_FORWARD;
+        }
+
+        @Override
+        public RedirectStatus visitDescTableStreamStatement(DescTableStreamStmt statement, Void context) {
             return RedirectStatus.NO_FORWARD;
         }
 

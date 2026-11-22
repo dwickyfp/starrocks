@@ -56,6 +56,10 @@ import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.stream.CreateTableStreamStmt;
+import com.starrocks.sql.ast.stream.DescTableStreamStmt;
+import com.starrocks.sql.ast.stream.DropTableStreamStmt;
+import com.starrocks.sql.ast.stream.ShowTableStreamsStmt;
 import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
 import com.starrocks.sql.ast.task.CreateTaskStmt;
 import com.starrocks.sql.ast.task.DescTaskStmt;
@@ -537,6 +541,24 @@ public interface AstVisitorExtendInterface<R, C> extends AstVisitor<R, C> {
 
     default R visitRestoreTableStatement(RestoreTableStmt statement, C context) {
         return visitStatement(statement, context);
+    }
+
+    // ---------------------------------------- Snowflake style Stream -------------------------------------------------
+
+    default R visitCreateTableStreamStatement(CreateTableStreamStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitDropTableStreamStatement(DropTableStreamStmt statement, C context) {
+        return visitDDLStatement(statement, context);
+    }
+
+    default R visitShowTableStreamsStatement(ShowTableStreamsStmt statement, C context) {
+        return visitShowStatement(statement, context);
+    }
+
+    default R visitDescTableStreamStatement(DescTableStreamStmt statement, C context) {
+        return visitShowStatement(statement, context);
     }
 
     // ---------------------------------------- FailPoint Statement ----------------------------------------------------

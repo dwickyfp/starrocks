@@ -44,8 +44,17 @@ public final class TimeTravelResolver {
     }
 
     public static void resolve(TableRelation relation, OlapTable table, ConnectContext session) {
+        Snapshot snapshot = snapshot(table, relation.getQueryPeriod(), session);
+        session.addTimeTravelScanVersions(table.getId(), table.getName(), snapshot.versions());
+    }
+
+    /** A point in time of a table and the versions of its physical partitions visible then. */
+    public record Snapshot(long time, Map<Long, Long> versions) {
+    }
+
+    /** The snapshot of the table at the point of a time travel clause. */
+    public static Snapshot snapshot(OlapTable table, QueryPeriod period, ConnectContext session) {
         String tableName = table.getName();
-        QueryPeriod period = relation.getQueryPeriod();
         if (period == null || period.getPeriodType() != QueryPeriod.PeriodType.TIMESTAMP
                 || period.getStart().isPresent() || period.getEnd().isEmpty()) {
             throw new SemanticException("Time travel on table %s only reads the table as of a point in time: "
@@ -76,7 +85,7 @@ public final class TimeTravelResolver {
         for (PhysicalPartition partition : table.getAllPhysicalPartitions()) {
             versions.put(partition.getId(), versionAt(partition, point, tableName));
         }
-        session.addTimeTravelScanVersions(table.getId(), tableName, versions);
+        return new Snapshot(point, versions);
     }
 
     /** The version of {@code partition} visible at {@code point}. */

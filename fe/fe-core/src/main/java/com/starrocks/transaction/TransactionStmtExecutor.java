@@ -338,6 +338,7 @@ public class TransactionStmtExecutor {
 
             InsertTxnCommitAttachment txnCommitAttachment = new InsertTxnCommitAttachment(loadedRows);
             txnCommitAttachment.setOperation("TRANSACTION");
+            txnCommitAttachment.setStreamOffsets(context.getConsumedStreamOffsets());
             VisibleStateWaiter visibleWaiter = transactionMgr.retryCommitOnRateLimitExceeded(
                     database,
                     transactionId,

@@ -56,7 +56,11 @@ statement
     | truncateTableStatement
     | showTableStatement
     | describeHistoryStatement
+    | descStreamStatement
     | descTableStatement
+    | createStreamStatement
+    | dropStreamStatement
+    | showStreamsStatement
     | showTableStatusStatement
     | showColumnStatement
     | refreshTableStatement
@@ -657,6 +661,28 @@ showAlterStatement
 
 descTableStatement
     : (DESC | DESCRIBE) ((table=qualifiedName ALL?) | (FILES propertyList))
+    ;
+
+// Snowflake style streams: the changes of a native table since an offset
+createStreamStatement
+    : CREATE (OR REPLACE)? STREAM (IF NOT EXISTS)? name=qualifiedName ON TABLE table=qualifiedName timeTravelClause?
+        streamOption* (COMMENT streamComment=string)?
+    ;
+
+streamOption
+    : identifier EQ (booleanValue | string)
+    ;
+
+dropStreamStatement
+    : DROP STREAM (IF EXISTS)? qualifiedName
+    ;
+
+showStreamsStatement
+    : SHOW STREAMS ((FROM | IN) db=qualifiedName)? (LIKE pattern=string)?
+    ;
+
+descStreamStatement
+    : (DESC | DESCRIBE) STREAM qualifiedName
     ;
 
 // the transactions that changed a native table within its time travel retention period
@@ -3609,7 +3635,7 @@ nonReserved
     | REPOSITORIES | RECURSIVE
     | RESOURCE | RESOURCES | RESTORE | RESUME | RETAIN | RETENTION | RETURNS | RETRY | REVERT | ROLE | ROLES | ROLLUP | ROLLBACK | ROUTINE | ROW | RUNNING | RULE | RULES
     | SAMPLE | SCHEDULE | SCHEDULER | SECOND | SECURITY | SEPARATOR | SERIALIZABLE |SEMI | SESSION | SETS | SIGNED | SNAPSHOT | SNAPSHOTS | SPLIT | SQL | SQLBLACKLIST | START | STARROCKS
-    | STREAM | SUM | STATUS | STOP | SKIP_KW | SKIP_HEADER | SWAP
+    | STREAM | STREAMS | SUM | STATUS | STOP | SKIP_KW | SKIP_HEADER | SWAP
     | STORAGE| STRING | STRING_AGG | STRUCT | STATS | SUBMIT | SUSPEND | SYNC | SYSTEM | SYSTEM_TIME
     | TABLES | TABLET | TABLETS | TAG | TASK | TASKS | CALLER | LANGUAGE | OWNER | PROCEDURES | TEMPORARY | TIMESTAMP | TIMESTAMPADD | TIMESTAMPDIFF | THAN | TIME | TIMES | TRANSACTION | TRANSFER | TRACE | TRANSLATE
     | TRIM_SPACE | TRAILING | TRIM | UNDROP

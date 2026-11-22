@@ -118,6 +118,8 @@ import com.starrocks.sql.common.MetaUtils;
 import com.starrocks.sql.common.TypeManager;
 import com.starrocks.sql.optimizer.dump.HiveMetaStoreTableDumpInfo;
 import com.starrocks.sql.parser.NodePosition;
+import com.starrocks.tablestream.TableStream;
+import com.starrocks.tablestream.TableStreamMgr;
 import com.starrocks.timetravel.TimeTravelResolver;
 import com.starrocks.type.BooleanType;
 import com.starrocks.type.IntegerType;
@@ -900,6 +902,15 @@ public class QueryAnalyzer {
 
                 Table table = tableRelation.getTable();
                 String catalogName = resolveTableName.getCatalog();
+                if (table == null) {
+                    QueryStatement streamQuery = resolveStream(tableRelation);
+                    if (streamQuery != null) {
+                        SubqueryRelation streamRelation = new SubqueryRelation(streamQuery);
+                        streamRelation.setAlias(tableRelation.getAlias() != null ? tableRelation.getAlias()
+                                : resolveTableName);
+                        return streamRelation;
+                    }
+                }
                 // External connector table has been pre-resolved in the unlocked phase.
                 if (table == null || catalogName == null || CatalogMgr.isInternalCatalog(catalogName)) {
                     table = resolveTable(tableRelation);
@@ -947,7 +958,10 @@ public class QueryAnalyzer {
 
                     r = viewRelation;
                 } else {
-                    if (hasTemporalClause(tableRelation) && table instanceof OlapTable && !table.isTemporal()) {
+                    if (tableRelation.getPinnedScanVersions() != null) {
+                        // reads given versions of the table, which no other relation of the statement shares
+                        session.markPinnedScanVersions();
+                    } else if (hasTemporalClause(tableRelation) && table instanceof OlapTable && !table.isTemporal()) {
                         TimeTravelResolver.resolve(tableRelation, (OlapTable) table, session);
                     } else if (table instanceof OlapTable && !hasTemporalClause(tableRelation)) {
                         session.addCurrentReadTable(table.getId(), table.getName());
@@ -2845,6 +2859,33 @@ public class QueryAnalyzer {
      */
     private QueryStatement takePreResolvedViewBody(View view) {
         return session.getPreResolvedState().viewBodies().take(view);
+    }
+
+    /** The query of the changes a stream returns, when the relation names a stream and no table; else null. */
+    private QueryStatement resolveStream(TableRelation tableRelation) {
+        TableName name = tableRelation.getName();
+        name.normalization(session);
+        if (!CatalogMgr.isInternalCatalog(name.getCatalog()) || Strings.isNullOrEmpty(name.getDb())) {
+            return null;
+        }
+        Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb(name.getDb());
+        TableStream stream = db == null ? null : TableStreamMgr.get(db, name.getTbl());
+        if (stream == null
+                || metadataMgr.getTemporaryTable(session.getSessionId(), name.getCatalog(), db.getId(),
+                name.getTbl()) != null
+                || GlobalStateMgr.getCurrentState().getLocalMetastore().getTable(db.getFullName(), name.getTbl()) != null) {
+            return null;
+        }
+        if (tableRelation.getQueryPeriod() != null || tableRelation.getQueryPeriodString() != null) {
+            throw new SemanticException("Stream %s cannot be read with time travel: it returns the changes of its "
+                    + "table since its offset", stream.getName());
+        }
+        if (tableRelation.getPartitionNames() != null || tableRelation.getTabletIds() != null
+                && !tableRelation.getTabletIds().isEmpty()) {
+            throw new SemanticException("Stream %s cannot be read with a PARTITION or TABLET clause",
+                    stream.getName());
+        }
+        return TableStreamMgr.read(session, db, stream);
     }
 
     public Table resolveTable(TableRelation tableRelation) {

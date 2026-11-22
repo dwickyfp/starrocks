@@ -267,6 +267,10 @@ import com.starrocks.sql.ast.procedure.DescProcedureStmt;
 import com.starrocks.sql.ast.procedure.DropProcedureStmt;
 import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
 import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
+import com.starrocks.sql.ast.stream.CreateTableStreamStmt;
+import com.starrocks.sql.ast.stream.DescTableStreamStmt;
+import com.starrocks.sql.ast.stream.DropTableStreamStmt;
+import com.starrocks.sql.ast.stream.ShowTableStreamsStmt;
 import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
 import com.starrocks.sql.ast.task.CreateTaskStmt;
 import com.starrocks.sql.ast.task.DescTaskStmt;
@@ -2456,6 +2460,43 @@ public class AuthorizerStmtVisitor implements AstVisitorExtendInterface<Void, Co
                     context.getCurrentUserIdentity(), context.getCurrentRoleIds(),
                     PrivilegeType.ANY.name(), ObjectType.DATABASE.name(), dbName);
         }
+        return null;
+    }
+
+    private static void checkAnyInDbOf(com.starrocks.sql.ast.QualifiedName name, ConnectContext context) {
+        List<String> parts = name.getParts();
+        String dbName = parts.size() >= 2 ? parts.get(parts.size() - 2) : context.getDatabase();
+        try {
+            Authorizer.checkAnyActionOnOrInDb(context, InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME, dbName);
+        } catch (AccessDeniedException e) {
+            AccessDeniedException.reportAccessDenied(InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME,
+                    context.getCurrentUserIdentity(), context.getCurrentRoleIds(),
+                    PrivilegeType.ANY.name(), ObjectType.DATABASE.name(), dbName);
+        }
+    }
+
+    @Override
+    public Void visitCreateTableStreamStatement(CreateTableStreamStmt statement, ConnectContext context) {
+        // the SELECT privilege on the table is checked by TableStreamExecutor#create
+        checkAnyInDbOf(statement.getName(), context);
+        return null;
+    }
+
+    @Override
+    public Void visitDropTableStreamStatement(DropTableStreamStmt statement, ConnectContext context) {
+        checkAnyInDbOf(statement.getName(), context);
+        return null;
+    }
+
+    @Override
+    public Void visitShowTableStreamsStatement(ShowTableStreamsStmt statement, ConnectContext context) {
+        // checked by TableStreamExecutor#show
+        return null;
+    }
+
+    @Override
+    public Void visitDescTableStreamStatement(DescTableStreamStmt statement, ConnectContext context) {
+        // checked by TableStreamExecutor#desc
         return null;
     }
 

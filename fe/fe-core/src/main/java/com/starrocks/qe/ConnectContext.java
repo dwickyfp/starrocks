@@ -96,6 +96,7 @@ import com.starrocks.sql.optimizer.dump.QueryDumpInfo;
 import com.starrocks.sql.optimizer.statistics.StatisticsLoadBudget;
 import com.starrocks.sql.parser.SqlParser;
 import com.starrocks.sql.spm.SQLPlanStorage;
+import com.starrocks.tablestream.StreamOffsetUpdate;
 import com.starrocks.thrift.TPipelineProfileLevel;
 import com.starrocks.thrift.TUniqueId;
 import com.starrocks.thrift.TWorkGroup;
@@ -113,6 +114,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -359,10 +362,61 @@ public class ConnectContext {
     private Set<Long> timeTravelTableIds = null;
     private Set<Long> currentReadTableIds = null;
     private int timeTravelScopeDepth = 0;
+    private boolean pinnedScanVersions = false;
 
     // The operation DESCRIBE HISTORY shows for the DML statements of this session, instead of their own kind:
     // set by statements that run DML for another statement, such as RESTORE TABLE.
     private String dmlOperationName = null;
+
+    // The streams read in the current transaction (the statement, or the explicit transaction), by stream id: the
+    // offset each was read from and the versions it was read up to. A DML statement that read a stream consumes it:
+    // its offset moves to those versions when the transaction commits.
+    private final Map<Long, StreamOffsetUpdate> streamReads = new LinkedHashMap<>();
+    private final Set<Long> statementStreamReads = new LinkedHashSet<>();
+    private final Set<Long> consumedStreams = new LinkedHashSet<>();
+
+    /** The read of the stream earlier in the explicit transaction, which a later read repeats, or null. */
+    public StreamOffsetUpdate getStreamRead(long streamId) {
+        return getTxnId() == 0 ? null : streamReads.get(streamId);
+    }
+
+    public void addStreamRead(StreamOffsetUpdate read) {
+        streamReads.put(read.getStreamId(), read);
+        statementStreamReads.add(read.getStreamId());
+    }
+
+    /** Starts a statement: outside an explicit transaction, the reads of the statements before it are forgotten. */
+    public void startStatementStreamReads() {
+        statementStreamReads.clear();
+        if (getTxnId() == 0) {
+            streamReads.clear();
+            consumedStreams.clear();
+        }
+    }
+
+    /** The DML statement being run consumes the streams it read. */
+    public void consumeStatementStreamReads() {
+        consumedStreams.addAll(statementStreamReads);
+    }
+
+    /** The offsets the commit of the transaction moves: those of the streams its DML statements read. */
+    public List<StreamOffsetUpdate> getConsumedStreamOffsets() {
+        List<StreamOffsetUpdate> offsets = new ArrayList<>();
+        for (Long streamId : consumedStreams) {
+            StreamOffsetUpdate read = streamReads.get(streamId);
+            if (read != null) {
+                offsets.add(read);
+            }
+        }
+        return offsets.isEmpty() ? null : offsets;
+    }
+
+    /** The transaction ended: commit or rollback. */
+    public void clearStreamReads() {
+        streamReads.clear();
+        statementStreamReads.clear();
+        consumedStreams.clear();
+    }
 
     public String getDmlOperationName() {
         return dmlOperationName;
@@ -377,7 +431,12 @@ public class ConnectContext {
     }
 
     public boolean hasTimeTravel() {
-        return timeTravelScanVersions != null && !timeTravelScanVersions.isEmpty();
+        return (timeTravelScanVersions != null && !timeTravelScanVersions.isEmpty()) || pinnedScanVersions;
+    }
+
+    /** Notes that the statement scans a relation at given versions, which rules out what time travel rules out. */
+    public void markPinnedScanVersions() {
+        pinnedScanVersions = true;
     }
 
     /** Pins the versions of one table's partitions; a statement reads each table at one point in time only. */
@@ -426,6 +485,7 @@ public class ConnectContext {
     }
 
     private void clearTimeTravel() {
+        pinnedScanVersions = false;
         timeTravelScanVersions = null;
         timeTravelTableIds = null;
         currentReadTableIds = null;

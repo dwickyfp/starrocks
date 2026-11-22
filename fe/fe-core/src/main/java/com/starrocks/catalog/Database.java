@@ -57,6 +57,7 @@ import com.starrocks.procedure.StoredProcedure;
 import com.starrocks.server.CatalogMgr;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.statistic.StatsConstants;
+import com.starrocks.tablestream.TableStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -107,6 +108,9 @@ public class Database extends MetaObject implements Writable {
     // Snowflake style stored procedures, by lower-case name, see StoredProcedureMgr
     @SerializedName(value = "sp")
     private ConcurrentMap<String, StoredProcedure> storedProcedures = Maps.newConcurrentMap();
+    // Snowflake style streams on tables, by lower-case name, see TableStreamMgr
+    @SerializedName(value = "streams")
+    private ConcurrentMap<String, TableStream> tableStreams = Maps.newConcurrentMap();
 
     @IgnoreMemoryTrack
     private final Map<String, Table> nameToTable;
@@ -147,6 +151,13 @@ public class Database extends MetaObject implements Writable {
         this.dataQuotaBytes = FeConstants.DEFAULT_DB_DATA_QUOTA_BYTES;
         this.replicaQuotaSize = FeConstants.DEFAULT_DB_REPLICA_QUOTA_SIZE;
         this.location = location;
+    }
+
+    public ConcurrentMap<String, TableStream> getTableStreams() {
+        if (tableStreams == null) {
+            tableStreams = Maps.newConcurrentMap();
+        }
+        return tableStreams;
     }
 
     public ConcurrentMap<String, StoredProcedure> getStoredProcedures() {

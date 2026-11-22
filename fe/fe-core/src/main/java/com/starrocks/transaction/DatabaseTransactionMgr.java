@@ -78,6 +78,7 @@ import com.starrocks.replication.ReplicationTxnCommitAttachment;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.RunMode;
 import com.starrocks.sql.analyzer.FeNameFormat;
+import com.starrocks.tablestream.TableStreamMgr;
 import com.starrocks.task.AgentBatchTask;
 import com.starrocks.task.AgentTaskExecutor;
 import com.starrocks.task.ClearTransactionTask;
@@ -548,7 +549,17 @@ public class DatabaseTransactionMgr {
             writeLock();
             try {
                 checkPartitionsStillEmptyForPlainInsert(copiedState, db);
-                txnOperated = unprotectedCommitPreparedTransaction(copiedState, db, leftOutDoubleWritePartitionIds);
+                // the streams the transaction read must still be at the offsets it read them from
+                TableStreamMgr.reserve(copiedState);
+                boolean operated = false;
+                try {
+                    operated = unprotectedCommitPreparedTransaction(copiedState, db, leftOutDoubleWritePartitionIds);
+                } finally {
+                    if (!operated) {
+                        TableStreamMgr.release(copiedState);
+                    }
+                }
+                txnOperated = operated;
             } finally {
                 writeUnlock();
             }
@@ -2460,6 +2471,8 @@ public class DatabaseTransactionMgr {
     }
 
     private void updateCatalogAfterCommitted(TransactionState transactionState, Database db) {
+        // the offsets of the streams the transaction read move with its commit
+        TableStreamMgr.onTransactionCommitted(transactionState);
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             Table table = globalStateMgr.getLocalMetastore().getTable(db.getId(), tableId);

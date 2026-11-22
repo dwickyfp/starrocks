@@ -16,6 +16,9 @@ package com.starrocks.transaction;
 
 import com.google.gson.annotations.SerializedName;
 import com.starrocks.load.loadv2.IVMRefreshCommitInfo;
+import com.starrocks.tablestream.StreamOffsetUpdate;
+
+import java.util.List;
 
 public class InsertTxnCommitAttachment extends TxnCommitAttachment {
     @SerializedName("loadedRows")
@@ -50,6 +53,10 @@ public class InsertTxnCommitAttachment extends TxnCommitAttachment {
     // null for transactions committed before it was recorded.
     @SerializedName("operation")
     private String operation;
+
+    // The streams the transaction read: their offsets move to the versions read when it commits.
+    @SerializedName("streamOffsets")
+    private List<StreamOffsetUpdate> streamOffsets;
 
     public InsertTxnCommitAttachment() {
         super(TransactionState.LoadJobSourceType.INSERT_STREAMING);
@@ -116,5 +123,13 @@ public class InsertTxnCommitAttachment extends TxnCommitAttachment {
 
     public boolean getRequireEmptyPartitions() {
         return requireEmptyPartitions;
+    }
+
+    public List<StreamOffsetUpdate> getStreamOffsets() {
+        return streamOffsets;
+    }
+
+    public void setStreamOffsets(List<StreamOffsetUpdate> streamOffsets) {
+        this.streamOffsets = streamOffsets;
     }
 }

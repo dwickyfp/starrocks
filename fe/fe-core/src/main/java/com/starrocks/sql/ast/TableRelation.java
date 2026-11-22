@@ -68,6 +68,11 @@ public class TableRelation extends Relation {
 
     private long gtid = 0;
 
+    // The versions to scan of each physical partition, set by the analyzer for a relation that reads a native
+    // table at given versions (the change scans of a stream); null to scan the visible versions or the versions
+    // time travel pins for the statement.
+    private Map<Long, Long> pinnedScanVersions = null;
+
     public TableRelation(TableName name) {
         super(name.getPos());
         this.name = name;
@@ -252,6 +257,14 @@ public class TableRelation extends Relation {
 
     public Map<Expr, SlotRef> getGeneratedExprToColumnRef() {
         return generatedExprToColumnRef;
+    }
+
+    public Map<Long, Long> getPinnedScanVersions() {
+        return pinnedScanVersions;
+    }
+
+    public void setPinnedScanVersions(Map<Long, Long> pinnedScanVersions) {
+        this.pinnedScanVersions = pinnedScanVersions;
     }
 
     public void setGtid(long gtid) {

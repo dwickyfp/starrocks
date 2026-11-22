@@ -543,6 +543,10 @@ import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.stream.CreateTableStreamStmt;
+import com.starrocks.sql.ast.stream.DescTableStreamStmt;
+import com.starrocks.sql.ast.stream.DropTableStreamStmt;
+import com.starrocks.sql.ast.stream.ShowTableStreamsStmt;
 import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
 import com.starrocks.sql.ast.task.CreateTaskStmt;
 import com.starrocks.sql.ast.task.DescTaskStmt;
@@ -3076,6 +3080,46 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         }
         ret.setHintNodes(hintMap.get(context));
         return ret;
+    }
+
+    @Override
+    public ParseNode visitCreateStreamStatement(
+            com.starrocks.sql.parser.StarRocksParser.CreateStreamStatementContext context) {
+        Map<String, String> options = new java.util.LinkedHashMap<>();
+        for (com.starrocks.sql.parser.StarRocksParser.StreamOptionContext option : context.streamOption()) {
+            String key = getIdentifierName(option.identifier()).toUpperCase(Locale.ROOT);
+            String value = option.booleanValue() != null ? option.booleanValue().getText()
+                    : ((StringLiteral) visit(option.string())).getValue();
+            if (options.put(key, value.toUpperCase(Locale.ROOT)) != null) {
+                throw new ParsingException("Option " + key + " of CREATE STREAM is given twice", createPos(option));
+            }
+        }
+        String comment = context.streamComment == null ? null
+                : ((StringLiteral) visit(context.streamComment)).getValue();
+        Expr point = context.timeTravelClause() == null ? null : buildTimeTravelPoint(context.timeTravelClause());
+        return new CreateTableStreamStmt(getQualifiedName(context.name), getQualifiedName(context.table),
+                context.OR() != null, context.IF() != null, point, options, comment, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitDropStreamStatement(
+            com.starrocks.sql.parser.StarRocksParser.DropStreamStatementContext context) {
+        return new DropTableStreamStmt(getQualifiedName(context.qualifiedName()), context.IF() != null,
+                createPos(context));
+    }
+
+    @Override
+    public ParseNode visitShowStreamsStatement(
+            com.starrocks.sql.parser.StarRocksParser.ShowStreamsStatementContext context) {
+        String dbName = context.db == null ? null : normalizeName(getQualifiedName(context.db).toString());
+        String pattern = context.pattern == null ? null : ((StringLiteral) visit(context.pattern)).getValue();
+        return new ShowTableStreamsStmt(dbName, pattern, createPos(context));
+    }
+
+    @Override
+    public ParseNode visitDescStreamStatement(
+            com.starrocks.sql.parser.StarRocksParser.DescStreamStatementContext context) {
+        return new DescTableStreamStmt(getQualifiedName(context.qualifiedName()), createPos(context));
     }
 
     @Override

@@ -71,6 +71,8 @@ import com.starrocks.storagevolume.StorageVolume;
 import com.starrocks.system.Backend;
 import com.starrocks.system.ComputeNode;
 import com.starrocks.system.Frontend;
+import com.starrocks.tablestream.DropTableStreamLog;
+import com.starrocks.tablestream.TableStream;
 import com.starrocks.transaction.TransactionState;
 import com.starrocks.transaction.TransactionStateBatch;
 import com.starrocks.warehouse.Warehouse;
@@ -279,6 +281,8 @@ public class EditLogDeserializer {
             .put(OperationType.OP_SET_DEFAULT_AI_PROVIDER, SetDefaultAIProviderLog.class)
             .put(OperationType.OP_CREATE_PROCEDURE, StoredProcedure.class)
             .put(OperationType.OP_DROP_PROCEDURE, DropProcedureLog.class)
+            .put(OperationType.OP_CREATE_TABLE_STREAM, TableStream.class)
+            .put(OperationType.OP_DROP_TABLE_STREAM, DropTableStreamLog.class)
             .put(OperationType.OP_CLUSTER_SNAPSHOT_LOG, ClusterSnapshotLog.class)
             .put(OperationType.OP_ADD_SQL_QUERY_BLACK_LIST, SqlBlackListPersistInfo.class)
             .put(OperationType.OP_DELETE_SQL_QUERY_BLACK_LIST, DeleteSqlBlackLists.class)

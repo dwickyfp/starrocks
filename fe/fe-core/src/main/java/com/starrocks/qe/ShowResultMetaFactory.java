@@ -135,11 +135,14 @@ import com.starrocks.sql.ast.pipe.ShowPipeStmt;
 import com.starrocks.sql.ast.procedure.DescProcedureStmt;
 import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.stream.DescTableStreamStmt;
+import com.starrocks.sql.ast.stream.ShowTableStreamsStmt;
 import com.starrocks.sql.ast.task.DescTaskStmt;
 import com.starrocks.sql.ast.task.ShowTasksStmt;
 import com.starrocks.sql.ast.warehouse.ShowClustersStmt;
 import com.starrocks.sql.ast.warehouse.ShowNodesStmt;
 import com.starrocks.sql.ast.warehouse.ShowWarehousesStmt;
+import com.starrocks.tablestream.TableStreamExecutor;
 import com.starrocks.type.DateType;
 import com.starrocks.type.IntegerType;
 import com.starrocks.type.StringType;
@@ -686,6 +689,16 @@ public class ShowResultMetaFactory implements AstVisitorExtendInterface<ShowResu
     @Override
     public ShowResultSetMetaData visitShowProceduresStatement(ShowProceduresStmt statement, Void context) {
         return ProcedureExecutor.SHOW_META_DATA;
+    }
+
+    @Override
+    public ShowResultSetMetaData visitShowTableStreamsStatement(ShowTableStreamsStmt statement, Void context) {
+        return TableStreamExecutor.META_DATA;
+    }
+
+    @Override
+    public ShowResultSetMetaData visitDescTableStreamStatement(DescTableStreamStmt statement, Void context) {
+        return TableStreamExecutor.META_DATA;
     }
 
     @Override

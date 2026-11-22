@@ -114,6 +114,9 @@ import com.starrocks.storagevolume.StorageVolume;
 import com.starrocks.system.Backend;
 import com.starrocks.system.ComputeNode;
 import com.starrocks.system.Frontend;
+import com.starrocks.tablestream.DropTableStreamLog;
+import com.starrocks.tablestream.TableStream;
+import com.starrocks.tablestream.TableStreamMgr;
 import com.starrocks.transaction.TransactionState;
 import com.starrocks.transaction.TransactionStateBatch;
 import com.starrocks.warehouse.Warehouse;
@@ -1234,6 +1237,14 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_PROCEDURE: {
                     StoredProcedureMgr.replayDrop((DropProcedureLog) journal.data());
+                    break;
+                }
+                case OperationType.OP_CREATE_TABLE_STREAM: {
+                    TableStreamMgr.replayCreate((TableStream) journal.data());
+                    break;
+                }
+                case OperationType.OP_DROP_TABLE_STREAM: {
+                    TableStreamMgr.replayDrop((DropTableStreamLog) journal.data());
                     break;
                 }
                 case OperationType.OP_SET_DEFAULT_AI_PROVIDER: {
@@ -2479,6 +2490,14 @@ public class EditLog {
 
     public void logDropProcedure(DropProcedureLog log, WALApplier walApplier) {
         logJsonObject(OperationType.OP_DROP_PROCEDURE, log, walApplier);
+    }
+
+    public void logCreateTableStream(TableStream stream, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_CREATE_TABLE_STREAM, stream, walApplier);
+    }
+
+    public void logDropTableStream(DropTableStreamLog log, WALApplier walApplier) {
+        logJsonObject(OperationType.OP_DROP_TABLE_STREAM, log, walApplier);
     }
 
     public void logSetDefaultAIProvider(SetDefaultAIProviderLog log, WALApplier walApplier) {

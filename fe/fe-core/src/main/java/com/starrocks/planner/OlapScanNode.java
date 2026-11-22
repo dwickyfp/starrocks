@@ -204,6 +204,8 @@ public class OlapScanNode extends AbstractOlapTableScanNode {
     private TableSampleClause sample;
 
     private long gtid = 0;
+    // versions to scan per physical partition, which come before the versions time travel pins for the statement
+    private Map<Long, Long> pinnedScanVersions;
 
     private Map<Long, Long> scanPartitionVersions = Maps.newHashMap();
 
@@ -670,8 +672,10 @@ public class OlapScanNode extends AbstractOlapTableScanNode {
         int schemaHash = olapTable.getSchemaHashByIndexMetaId(index.getMetaId());
         String schemaHashStr = String.valueOf(schemaHash);
         ConnectContext ctx = ConnectContext.get();
-        long visibleVersion = chooseScanVersion(physicalPartition.getVisibleVersion(), physicalPartition.getId(),
-                ctx == null ? null : ctx.getTimeTravelScanVersions());
+        long visibleVersion = pinnedScanVersions != null && pinnedScanVersions.containsKey(physicalPartition.getId())
+                ? pinnedScanVersions.get(physicalPartition.getId())
+                : chooseScanVersion(physicalPartition.getVisibleVersion(), physicalPartition.getId(),
+                        ctx == null ? null : ctx.getTimeTravelScanVersions());
         visibleVersion = chooseScanVersion(visibleVersion, physicalPartition.getId(),
                 ctx == null ? null : ctx.getScanVersionOverride());
         scanPartitionVersions.put(physicalPartition.getId(), visibleVersion);
@@ -1935,6 +1939,10 @@ public class OlapScanNode extends AbstractOlapTableScanNode {
 
     public List<List<LiteralExpr>> getRowStoreKeyLiterals() {
         return rowStoreKeyLiterals;
+    }
+
+    public void setPinnedScanVersions(Map<Long, Long> pinnedScanVersions) {
+        this.pinnedScanVersions = pinnedScanVersions;
     }
 
     public void setGtid(long gtid) {

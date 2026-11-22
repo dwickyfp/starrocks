@@ -715,6 +715,7 @@ public class RelationTransformer implements AstVisitorExtendInterface<LogicalPla
                         .setDistributionSpec(distributionSpec)
                         .setSelectedIndexId(((OlapTable) node.getTable()).getBaseIndexMetaId())
                         .setGtid(node.getGtid())
+                        .setPinnedScanVersions(node.getPinnedScanVersions())
                         .setPartitionNames(node.getPartitionNames() == null ? null
                                 : new PartitionNames(node.getPartitionNames().isTemp(),
                                 node.getPartitionNames().getPartitionNames(), node.getPartitionNames().getPos()))

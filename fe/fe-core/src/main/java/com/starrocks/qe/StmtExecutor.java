@@ -1003,6 +1003,7 @@ public class StmtExecutor {
         if (!preservesDiagnosticsArea) {
             context.clearWarnings();
         }
+        context.startStatementStreamReads();
 
         SessionVariable sessionVariableBackup = context.getSessionVariable();
         ComputeResource computeResourceBackup = context.getCurrentComputeResourceNoAcquire();
@@ -3715,6 +3716,8 @@ public class StmtExecutor {
 
         if (context.getTxnId() != 0) {
             TransactionStmtExecutor.loadData(database, targetTable, execPlan, stmt, originStmt, context);
+            // the streams the statement read move on when the transaction commits
+            context.consumeStatementStreamReads();
             return;
         }
         long transactionId = stmt.getTxnId();
@@ -4081,6 +4084,8 @@ public class StmtExecutor {
                 if (attachment != null) {
                     attachment.setOperation(context.getDmlOperationName() != null
                             ? context.getDmlOperationName() : dmlType.name());
+                    context.consumeStatementStreamReads();
+                    attachment.setStreamOffsets(context.getConsumedStreamOffsets());
                 }
                 VisibleStateWaiter visibleWaiter = transactionMgr.retryCommitOnRateLimitExceeded(
                         database,

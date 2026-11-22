@@ -171,6 +171,8 @@ import com.starrocks.sql.ast.procedure.ExecuteImmediateStmt;
 import com.starrocks.sql.ast.spm.ControlBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.CreateBaselinePlanStmt;
 import com.starrocks.sql.ast.spm.DropBaselinePlanStmt;
+import com.starrocks.sql.ast.stream.CreateTableStreamStmt;
+import com.starrocks.sql.ast.stream.DropTableStreamStmt;
 import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
 import com.starrocks.sql.ast.task.CreateTaskStmt;
 import com.starrocks.sql.ast.task.ExecuteTaskStmt;
@@ -190,6 +192,7 @@ import com.starrocks.statistic.NativeAnalyzeJob;
 import com.starrocks.statistic.StatisticExecutor;
 import com.starrocks.statistic.StatisticUtils;
 import com.starrocks.statistic.StatsConstants;
+import com.starrocks.tablestream.TableStreamExecutor;
 import com.starrocks.warehouse.cngroup.ComputeResource;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1177,6 +1180,18 @@ public class DDLStmtExecutor {
         @Override
         public ShowResultSet visitDropProcedureStatement(DropProcedureStmt stmt, ConnectContext context) {
             ErrorReport.wrapWithRuntimeException(() -> ProcedureExecutor.drop(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitCreateTableStreamStatement(CreateTableStreamStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> TableStreamExecutor.create(stmt, context));
+            return null;
+        }
+
+        @Override
+        public ShowResultSet visitDropTableStreamStatement(DropTableStreamStmt stmt, ConnectContext context) {
+            ErrorReport.wrapWithRuntimeException(() -> TableStreamExecutor.drop(stmt, context));
             return null;
         }
 

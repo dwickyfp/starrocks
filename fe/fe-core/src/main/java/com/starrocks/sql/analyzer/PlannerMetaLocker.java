@@ -49,6 +49,8 @@ import com.starrocks.sql.ast.ViewRelation;
 import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.common.ErrorType;
 import com.starrocks.sql.common.StarRocksPlannerException;
+import com.starrocks.tablestream.TableStream;
+import com.starrocks.tablestream.TableStreamMgr;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -450,7 +452,12 @@ public class PlannerMetaLocker implements AutoCloseable {
 
         Table table = metadataMgr.getTable(session, catalogName, dbName, tbName);
         if (table == null) {
-            return null;
+            // a stream reads its table
+            TableStream stream = TableStreamMgr.get(db, tbName);
+            table = stream == null ? null : TableStreamMgr.tableOf(stream);
+            if (table == null) {
+                return null;
+            }
         }
 
         // Only lock what the lock can protect. Same predicate AnalyzerUtils.CopyUnsafeTablesCollector uses to

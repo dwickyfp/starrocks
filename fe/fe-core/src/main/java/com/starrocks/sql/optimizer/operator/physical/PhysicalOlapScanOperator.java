@@ -73,6 +73,8 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
 
     private long gtid = 0;
 
+    private Map<Long, Long> pinnedScanVersions;
+
     private PhysicalOlapScanOperator() {
         super(OperatorType.PHYSICAL_OLAP_SCAN);
     }
@@ -109,6 +111,7 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
         this.orderedPhysicalCUniqueIds = scanOperator.getOrderedPhysicalCUniqueIds();
         this.selectedIndexMetaId = scanOperator.getSelectedIndexMetaId();
         this.gtid = scanOperator.getGtid();
+        this.pinnedScanVersions = scanOperator.getPinnedScanVersions();
         this.selectedPartitionId = scanOperator.getSelectedPartitionId();
         this.selectedTabletId = scanOperator.getSelectedTabletId();
         this.hintsReplicaId = scanOperator.getHintsReplicaIds();
@@ -128,6 +131,10 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
 
     public long getGtid() {
         return gtid;
+    }
+
+    public Map<Long, Long> getPinnedScanVersions() {
+        return pinnedScanVersions;
     }
 
     public void setSelectedPartitionId(List<Long> selectedPartitionId) {
@@ -279,6 +286,7 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
                 && parallelRangeScan == that.parallelRangeScan &&
                 selectedIndexMetaId == that.selectedIndexMetaId &&
                 gtid == that.gtid &&
+                Objects.equals(pinnedScanVersions, that.pinnedScanVersions) &&
                 Objects.equals(distributionSpec, that.distributionSpec) &&
                 Objects.equals(selectedPartitionId, that.selectedPartitionId) &&
                 Objects.equals(sample, that.sample) &&
@@ -347,6 +355,7 @@ public class PhysicalOlapScanOperator extends PhysicalScanOperator {
             builder.orderedPhysicalCUniqueIds = operator.orderedPhysicalCUniqueIds;
             builder.selectedIndexMetaId = operator.selectedIndexMetaId;
             builder.gtid = operator.gtid;
+            builder.pinnedScanVersions = operator.pinnedScanVersions;
             builder.selectedTabletId = operator.selectedTabletId;
             builder.hintsReplicaId = operator.hintsReplicaId;
             builder.selectedPartitionId = operator.selectedPartitionId;

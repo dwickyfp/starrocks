@@ -56,6 +56,8 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
     private boolean fromSplitOR;
 
     private long gtid = 0;
+    // versions to scan per physical partition, see TableRelation#getPinnedScanVersions; null for none
+    private Map<Long, Long> pinnedScanVersions;
 
     private VectorSearchOptions vectorSearchOptions = new VectorSearchOptions();
 
@@ -154,6 +156,10 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
         return gtid;
     }
 
+    public Map<Long, Long> getPinnedScanVersions() {
+        return pinnedScanVersions;
+    }
+
     @Override
     public boolean isEmptyOutputRows() {
         return selectedTabletId == null || selectedTabletId.isEmpty() ||
@@ -225,6 +231,7 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
                 && parallelRangeScan == that.parallelRangeScan &&
                 selectedIndexMetaId == that.selectedIndexMetaId &&
                 gtid == that.gtid &&
+                Objects.equals(pinnedScanVersions, that.pinnedScanVersions) &&
                 Objects.equals(distributionSpec, that.distributionSpec) &&
                 Objects.equals(selectedPartitionId, that.selectedPartitionId) &&
                 Objects.equals(partitionNames, that.partitionNames) &&
@@ -237,7 +244,7 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), parallelRangeScan, groupedRangeScan, orderedPhysicalCUniqueIds,
-                selectedIndexMetaId, gtid, selectedPartitionId,
+                selectedIndexMetaId, gtid, pinnedScanVersions, selectedPartitionId,
                 selectedTabletId, hintsTabletIds, hintsReplicaIds, sample);
     }
 
@@ -262,6 +269,7 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
             builder.orderedPhysicalCUniqueIds = scanOperator.orderedPhysicalCUniqueIds;
             builder.selectedIndexMetaId = scanOperator.selectedIndexMetaId;
             builder.gtid = scanOperator.gtid;
+            builder.pinnedScanVersions = scanOperator.pinnedScanVersions;
             builder.selectedPartitionId = scanOperator.selectedPartitionId;
             builder.partitionNames = scanOperator.partitionNames;
             builder.hasTableHints = scanOperator.hasTableHints;
@@ -298,6 +306,11 @@ public final class LogicalOlapScanOperator extends LogicalScanOperator {
 
         public Builder setGtid(long gtid) {
             builder.gtid = gtid;
+            return this;
+        }
+
+        public Builder setPinnedScanVersions(Map<Long, Long> pinnedScanVersions) {
+            builder.pinnedScanVersions = pinnedScanVersions;
             return this;
         }
 

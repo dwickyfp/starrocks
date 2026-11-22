@@ -271,6 +271,8 @@ import com.starrocks.sql.ast.pipe.ShowPipeStmt;
 import com.starrocks.sql.ast.procedure.DescProcedureStmt;
 import com.starrocks.sql.ast.procedure.ShowProceduresStmt;
 import com.starrocks.sql.ast.spm.ShowBaselinePlanStmt;
+import com.starrocks.sql.ast.stream.DescTableStreamStmt;
+import com.starrocks.sql.ast.stream.ShowTableStreamsStmt;
 import com.starrocks.sql.ast.task.DescTaskStmt;
 import com.starrocks.sql.ast.task.ShowTasksStmt;
 import com.starrocks.sql.ast.warehouse.ShowNodesStmt;
@@ -294,6 +296,7 @@ import com.starrocks.statistic.StatisticUtils;
 import com.starrocks.system.ComputeNode;
 import com.starrocks.system.Frontend;
 import com.starrocks.system.SystemInfoService;
+import com.starrocks.tablestream.TableStreamExecutor;
 import com.starrocks.thrift.TAuthInfo;
 import com.starrocks.thrift.TConnectionInfo;
 import com.starrocks.thrift.TListConnectionRequest;
@@ -3538,6 +3541,16 @@ public class ShowExecutor {
         @Override
         public ShowResultSet visitShowProceduresStatement(ShowProceduresStmt statement, ConnectContext context) {
             return ProcedureExecutor.show(statement, context);
+        }
+
+        @Override
+        public ShowResultSet visitShowTableStreamsStatement(ShowTableStreamsStmt statement, ConnectContext context) {
+            return TableStreamExecutor.show(statement, context);
+        }
+
+        @Override
+        public ShowResultSet visitDescTableStreamStatement(DescTableStreamStmt statement, ConnectContext context) {
+            return TableStreamExecutor.desc(statement, context);
         }
 
         @Override
