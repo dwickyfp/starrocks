@@ -470,6 +470,26 @@ static bool allocate_initial_coarse_split(const PreparedSegmentReadStatePtr& seg
     return true;
 }
 
+namespace {
+// starlet_star_cache_block_size_bytes and remote_prefetch_window_blocks exist only in a build with StarOS
+// (--enable-shared-data); without it there is no star cache and no remote read-ahead.
+#ifdef USE_STAROS
+int64_t star_cache_block_size_bytes() {
+    return config::starlet_star_cache_block_size_bytes;
+}
+int32_t remote_read_ahead_window_blocks() {
+    return config::remote_prefetch_window_blocks;
+}
+#else
+constexpr int64_t star_cache_block_size_bytes() {
+    return 1048576;
+}
+constexpr int32_t remote_read_ahead_window_blocks() {
+    return 0;
+}
+#endif
+} // namespace
+
 // lake_scan_warm_index: starts filling the local cache with the index pages the scan of |state| reads next, and
 // returns without waiting. Per segment: the short key index, the zone map and bloom filter roots of |predicate_cids|
 // and the ordinal index roots of |read_cids|. An index root that is not the sole data page of its index sits right
@@ -485,7 +505,7 @@ static void warm_prepared_indexes(PreparedTabletReadState* state, const TabletSc
                                   const std::atomic<bool>* is_cancelled, OlapReaderStatistics* stats) {
     LakeIOOptions lake_io_opts = query_io_opts;
     lake_io_opts.remote_read = ScopedRemoteReadContext::or_current(query_io_opts.remote_read);
-    const int64_t block_size = std::max<int64_t>(1, config::starlet_star_cache_block_size_bytes);
+    const int64_t block_size = std::max<int64_t>(1, star_cache_block_size_bytes());
     for (size_t rowset_idx = 0; rowset_idx < state->rowset_segments.size(); ++rowset_idx) {
         const auto& segments = state->rowset_segments[rowset_idx];
         const RowsetMetadataPB* rowset_meta = nullptr;
@@ -1916,7 +1936,7 @@ bool TabletReader::union_reads_ahead(const TabletReaderParams& params) const {
     return union_branch && cache_read_ahead && params.reader_type == ReaderType::READER_QUERY && !_need_split &&
            _is_asc_hint && params.rowid_range_option == nullptr && params.short_key_ranges_option == nullptr &&
            remote_io_scheduler_enabled() && config::lake_scan_read_ahead_segments > 0 &&
-           config::remote_prefetch_window_blocks > 0;
+           remote_read_ahead_window_blocks() > 0;
 }
 
 Status TabletReader::init_collector(const TabletReaderParams& params) {
@@ -1989,7 +2009,7 @@ Status TabletReader::init_collector(const TabletReaderParams& params) {
         // With _union_reads_ahead, each child is one segment (see union_reads_ahead()).
         if (_union_reads_ahead) {
             _collect_iter = new_union_iterator(std::move(seg_iters), config::lake_scan_read_ahead_segments,
-                                               config::remote_prefetch_window_blocks);
+                                               remote_read_ahead_window_blocks());
         } else {
             _collect_iter = new_union_iterator(std::move(seg_iters));
         }
