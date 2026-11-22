@@ -19,11 +19,13 @@ import com.starrocks.catalog.UserIdentity;
 import com.starrocks.persist.gson.GsonUtils;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.DDLStmtExecutor;
+import com.starrocks.qe.RedirectStatus;
 import com.starrocks.qe.ShowExecutor;
 import com.starrocks.qe.ShowResultSet;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.ShowStmt;
 import com.starrocks.sql.ast.StatementBase;
+import com.starrocks.sql.parser.SqlParser;
 import com.starrocks.utframe.StarRocksAssert;
 import com.starrocks.utframe.UtFrameUtils;
 import org.junit.jupiter.api.AfterEach;
@@ -389,5 +391,22 @@ public class StoredProcedureTest {
             starRocksAssert = new StarRocksAssert(root);
             root.setThreadLocalInfo();
         }
+    }
+
+    @Test
+    public void testStoredProcedureRunsOnTheLeader() throws Exception {
+        run("CREATE PROCEDURE on_leader() RETURNS INT LANGUAGE SQL AS $$ BEGIN RETURN 1; END $$");
+        ConnectContext ctx = starRocksAssert.getCtx();
+        ctx.setThreadLocalInfo();
+        Assertions.assertEquals(RedirectStatus.FORWARD_WITH_SYNC, RedirectStatus.getRedirectStatus(
+                SqlParser.parseSingleStatement("CALL on_leader()", ctx.getSessionVariable().getSqlMode())));
+        Assertions.assertEquals(RedirectStatus.FORWARD_WITH_SYNC, RedirectStatus.getRedirectStatus(
+                SqlParser.parseSingleStatement("CALL sp.on_leader()", ctx.getSessionVariable().getSqlMode())));
+        Assertions.assertEquals(RedirectStatus.FORWARD_WITH_SYNC, RedirectStatus.getRedirectStatus(
+                SqlParser.parseSingleStatement("EXECUTE IMMEDIATE $$ BEGIN RETURN 1; END $$",
+                        ctx.getSessionVariable().getSqlMode())));
+        // a name that is not a stored procedure, such as a connector procedure, stays on this FE
+        Assertions.assertEquals(RedirectStatus.NO_FORWARD, RedirectStatus.getRedirectStatus(
+                SqlParser.parseSingleStatement("CALL not_a_procedure()", ctx.getSessionVariable().getSqlMode())));
     }
 }
