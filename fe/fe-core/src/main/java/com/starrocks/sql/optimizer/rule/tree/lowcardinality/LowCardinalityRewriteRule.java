@@ -35,6 +35,10 @@ public class LowCardinalityRewriteRule implements TreeRewriteRule {
         if (!session.isEnableLowCardinalityOptimize() || !session.isUseLowCardinalityOptimizeV2()) {
             return root;
         }
+        // The global dicts describe the current data: a time travel read may meet values they do not cover.
+        if (connectContext.hasTimeTravel()) {
+            return root;
+        }
 
         // Capture the accepted global dicts into the query dump so offline replay reproduces the Decode.
         // Capturing here (not during scan statistics) makes the captured dict exactly the one the rewrite

@@ -21,6 +21,7 @@ import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.PhysicalPartition;
 import com.starrocks.catalog.Replica;
 import com.starrocks.catalog.Tablet;
+import com.starrocks.common.FeConstants;
 import com.starrocks.common.util.TimeUtils;
 import com.starrocks.persist.gson.GsonUtils;
 import com.starrocks.planner.OlapScanNode;
@@ -28,9 +29,12 @@ import com.starrocks.planner.ScanNode;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.DDLStmtExecutor;
 import com.starrocks.qe.GlobalVariable;
+import com.starrocks.qe.SessionVariable;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.StatementPlanner;
 import com.starrocks.sql.ast.StatementBase;
+import com.starrocks.sql.optimizer.Utils;
+import com.starrocks.sql.optimizer.operator.physical.PhysicalOlapScanOperator;
 import com.starrocks.sql.parser.SqlParser;
 import com.starrocks.sql.plan.ExecPlan;
 import com.starrocks.utframe.StarRocksAssert;
@@ -242,5 +246,46 @@ public class TimeTravelTest {
         Assertions.assertEquals(TimeTravelBeConfigSyncer.BE_DEFAULT_SECONDS, TimeTravelBeConfigSyncer.targetSeconds(0));
         Assertions.assertEquals(86400 + 3600, TimeTravelBeConfigSyncer.targetSeconds(1));
         Assertions.assertEquals(90 * 86400 + 3600, TimeTravelBeConfigSyncer.targetSeconds(90));
+    }
+
+    /** The global dicts of the scans of {@code sql}, with low cardinality optimization v1 or v2. */
+    private static int globalDicts(String sql, boolean v2) throws Exception {
+        ConnectContext ctx = starRocksAssert.getCtx();
+        ctx.setThreadLocalInfo();
+        SessionVariable saved = ctx.getSessionVariable().clone();
+        boolean savedMock = FeConstants.USE_MOCK_DICT_MANAGER;
+        try {
+            FeConstants.USE_MOCK_DICT_MANAGER = true;
+            ctx.getSessionVariable().setEnableLowCardinalityOptimize(true);
+            ctx.getSessionVariable().setUseLowCardinalityOptimizeV2(v2);
+            ExecPlan plan = StatementPlanner.plan(SqlParser.parse(sql, ctx.getSessionVariable()).get(0), ctx);
+            int dicts = 0;
+            for (PhysicalOlapScanOperator scan : Utils.extractPhysicalOlapScanOperator(plan.getPhysicalPlan())) {
+                dicts += scan.getGlobalDicts().size();
+            }
+            return dicts;
+        } finally {
+            FeConstants.USE_MOCK_DICT_MANAGER = savedMock;
+            ctx.setSessionVariable(saved);
+        }
+    }
+
+    @Test
+    public void testNoGlobalDictForThePast() throws Exception {
+        // the global dict of a column is built from its current values: an older version may hold others
+        starRocksAssert.withTable("CREATE TABLE named (k INT, s VARCHAR(16)) DUPLICATE KEY (k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num' = '1', "
+                + "'data_retention_time_in_days' = '1')");
+        OlapTable named = table("named");
+        PhysicalPartition partition = partition(named);
+        partition.setVisibleVersion(1, base - 4 * HOUR);
+        publish(named, partition, 2, base - 3 * HOUR);
+        publish(named, partition, 3, base - HOUR);
+        String now = "SELECT s, count(*) FROM named GROUP BY s";
+        String past = "SELECT s, count(*) FROM named AT(TIMESTAMP => '" + at(base - 2 * HOUR) + "') GROUP BY s";
+        for (boolean v2 : List.of(true, false)) {
+            Assertions.assertTrue(globalDicts(now, v2) > 0, "the dict rewrite runs for a current read, v2=" + v2);
+            Assertions.assertEquals(0, globalDicts(past, v2), "no dict rewrite for a time travel read, v2=" + v2);
+        }
     }
 }

@@ -958,6 +958,10 @@ public class AddDecodeNodeForDictStringRule implements TreeRewriteRule {
                 || taskContext.getOptimizerContext().getSessionVariable().isUseLowCardinalityOptimizeV2()) {
             return root;
         }
+        // The global dicts describe the current data: a time travel read may meet values they do not cover.
+        if (ConnectContext.get().hasTimeTravel()) {
+            return root;
+        }
 
         List<PhysicalOlapScanOperator> scanOperators = Utils.extractPhysicalOlapScanOperator(root);
 
