@@ -2309,6 +2309,7 @@ public class QueryAnalyzer {
             }
             visitIfPresent(node.getSourceRelation());
             visitIfPresent(node.getMergeCondition());
+            visitIfPresent(node.getReplaceWhere());
             if (node.getWhenClauses() != null) {
                 for (MergeWhenClause whenClause : node.getWhenClauses()) {
                     visitIfPresent(whenClause.getOptionalCondition());

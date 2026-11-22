@@ -69,6 +69,10 @@ public class MergeIntoAnalyzer {
         TableName tableName = TableName.fromTableRef(tableRef);
         Table table = AnalyzerUtils.resolveWriteTarget(session, tableName);
 
+        if (stmt.getReplaceWhere() != null && !(table instanceof OlapTable olap
+                && olap.getKeysType() == com.starrocks.sql.ast.KeysType.PRIMARY_KEYS)) {
+            throw new SemanticException("INSERT INTO ... REPLACE WHERE is only supported for Primary Key tables");
+        }
         if (table instanceof IcebergTable icebergTable) {
             for (MergeWhenClause clause : stmt.getWhenClauses()) {
                 if (clause.isNotMatchedBySource()) {

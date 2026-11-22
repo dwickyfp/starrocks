@@ -145,15 +145,38 @@ final class MergeIntoOlapAnalyzer {
         }
         inner.addItem(new SelectListItem(actionCase(clauses, target, source, keys, bySource), ACTION_COLUMN));
 
-        Relation sourceRelation = bySource ? markSourceRows(stmt.getSourceRelation(), sourceName)
-                : stmt.getSourceRelation();
-        TableRelation targetRelation = new TableRelation(tableName);
-        targetRelation.setTable(table);
-        if (stmt.getTargetAlias() != null) {
-            targetRelation.setAlias(new TableName(null, null, stmt.getTargetAlias()));
+        Relation sourceRelation = stmt.getSourceRelation();
+        TableRelation table0 = new TableRelation(tableName);
+        table0.setTable(table);
+        Relation targetRelation = table0;
+        Expr condition = stmt.getMergeCondition();
+        Expr replaceWhere = stmt.getReplaceWhere();
+        if (replaceWhere != null) {
+            // The query gives every column that is not generated, by position, and every row of it must satisfy
+            // the predicate. Only the target rows it holds for can be replaced, so the target is filtered first,
+            // which keeps partition pruning.
+            sourceRelation.setColumnOutputNames(columns.stream().filter(c -> !c.isGeneratedColumn())
+                    .map(Column::getName).toList());
+            Expr satisfied = new FunctionCallExpr("assert_true", Lists.newArrayList(
+                    new FunctionCallExpr("coalesce", Lists.newArrayList(replaceWhere.clone(), new BoolLiteral(false))),
+                    new StringLiteral("A row of INSERT INTO ... REPLACE WHERE does not satisfy the REPLACE WHERE "
+                            + "predicate")));
+            sourceRelation = filtered(sourceRelation, satisfied, sourceName);
+            targetRelation = filtered(table0, replaceWhere.clone(), stmt.getTargetAlias());
+            for (Column key : keys) {
+                Expr equal = new BinaryPredicate(BinaryType.EQ, new SlotRef(source, key.getName()),
+                        new SlotRef(target, key.getName()));
+                condition = condition == null ? equal
+                        : new CompoundPredicate(CompoundPredicate.Operator.AND, condition, equal);
+            }
+        } else if (stmt.getTargetAlias() != null) {
+            table0.setAlias(new TableName(null, null, stmt.getTargetAlias()));
+        }
+        if (bySource) {
+            sourceRelation = markSourceRows(sourceRelation, sourceName);
         }
         JoinRelation join = new JoinRelation(bySource ? JoinOperator.FULL_OUTER_JOIN : JoinOperator.LEFT_OUTER_JOIN,
-                sourceRelation, targetRelation, stmt.getMergeCondition(), false);
+                sourceRelation, targetRelation, condition, false);
 
         // The rows that are written, with the number of them that have the same key.
         boolean checkKeys = session.getSessionVariable().isErrorOnNondeterministicMerge();
@@ -181,10 +204,13 @@ final class MergeIntoOlapAnalyzer {
         Expr check = null;
         if (checkKeys) {
             Expr single = new BinaryPredicate(BinaryType.EQ, new SlotRef(null, ROWS_COLUMN), new IntLiteral(1));
-            check = new FunctionCallExpr("assert_true", Lists.newArrayList(single, new StringLiteral(
-                    "Duplicate row detected during MERGE INTO: more than one source row matches the same target "
+            String message = replaceWhere != null
+                    ? "Duplicate row detected during INSERT INTO ... REPLACE WHERE: more than one row of the query has "
+                            + "the same key. Set error_on_nondeterministic_merge to false to write one of them"
+                    : "Duplicate row detected during MERGE INTO: more than one source row matches the same target "
                             + "row, or more than one row with the same key is inserted. Set "
-                            + "error_on_nondeterministic_merge to false to write one of them")));
+                            + "error_on_nondeterministic_merge to false to write one of them";
+            check = new FunctionCallExpr("assert_true", Lists.newArrayList(single, new StringLiteral(message)));
         }
         SelectRelation outerSelect = new SelectRelation(outer, subquery(middleSelect), check, null, null);
 
@@ -394,6 +420,18 @@ final class MergeIntoOlapAnalyzer {
                 new SelectRelation(items, source, null, null, null)));
         marked.setAlias(new TableName(null, name));
         return marked;
+    }
+
+    /**
+     * {@code (SELECT * FROM relation WHERE predicate) alias}
+     */
+    private static Relation filtered(Relation relation, Expr predicate, String alias) {
+        SelectList items = new SelectList();
+        items.addItem(new SelectListItem(null));
+        SubqueryRelation subquery = new SubqueryRelation(new QueryStatement(
+                new SelectRelation(items, relation, predicate, null, null)));
+        subquery.setAlias(new TableName(null, alias));
+        return subquery;
     }
 
     private static SubqueryRelation subquery(SelectRelation select) {

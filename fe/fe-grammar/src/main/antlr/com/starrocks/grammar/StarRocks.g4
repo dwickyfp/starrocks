@@ -107,6 +107,7 @@ statement
     | updateStatement
     | deleteStatement
     | mergeIntoStatement
+    | insertReplaceWhereStatement
 
     // Routine Statement
     | createRoutineLoadStatement
@@ -1425,6 +1426,10 @@ insertStatement
     : explainDesc? INSERT (INTO | OVERWRITE) (qualifiedName writeBranch? partitionNames? | (FILES propertyList) | (BLACKHOLE '(' ')'))
         insertLabelOrColumnAliases* properties?
         (queryStatement | (VALUES expressionsWithDefault (',' expressionsWithDefault)*))
+    ;
+
+insertReplaceWhereStatement
+    : explainDesc? INSERT INTO qualifiedName REPLACE WHERE replaceWhere=expression queryStatement
     ;
 
 // for compatibility with the case 'LABEL before columnAliases'

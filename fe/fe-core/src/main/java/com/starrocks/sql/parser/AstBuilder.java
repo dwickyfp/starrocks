@@ -617,6 +617,10 @@ import static java.lang.String.format;
 import static java.util.stream.Collectors.toList;
 
 public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<ParseNode> {
+    // The names of the target and the source of INSERT INTO ... REPLACE WHERE, which is planned as a MERGE INTO.
+    public static final String REPLACE_WHERE_TARGET = "__REPLACE_TARGET__";
+    public static final String REPLACE_WHERE_SOURCE = "__REPLACE_SOURCE__";
+
     private final long sqlMode;
 
     private boolean caseInsensitive;
@@ -3030,6 +3034,37 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         List<MergeWhenClause> whenClauses = visit(context.mergeWhenClause(), MergeWhenClause.class);
         MergeIntoStmt ret = new MergeIntoStmt(tableRef, getWriteBranch(context.writeBranch()), targetAlias,
                 sourceRelation, sourceAlias, mergeCondition, whenClauses, createPos(context));
+        if (context.explainDesc() != null) {
+            ret.setIsExplain(true, getExplainType(context.explainDesc()));
+            if (StatementBase.ExplainLevel.ANALYZE.equals(ret.getExplainLevel())) {
+                throw new ParsingException(PARSER_ERROR_MSG.unsupportedOp("analyze"));
+            }
+        }
+        ret.setHintNodes(hintMap.get(context));
+        return ret;
+    }
+
+    /**
+     * {@code INSERT INTO t REPLACE WHERE pred query} is a MERGE INTO whose source is the query, with UPDATE SET *,
+     * INSERT * and a DELETE of the target rows no source row matches. The analyzer limits the target to the rows
+     * the predicate holds for, joins on the primary key and checks that every source row satisfies it.
+     */
+    @Override
+    public ParseNode visitInsertReplaceWhereStatement(
+            com.starrocks.sql.parser.StarRocksParser.InsertReplaceWhereStatementContext context) {
+        QualifiedName qualifiedName = getQualifiedName(context.qualifiedName());
+        NodePosition pos = createPos(context);
+        TableRef tableRef = new TableRef(normalizeName(qualifiedName), null, pos);
+        QueryStatement query = (QueryStatement) visit(context.queryStatement());
+        SubqueryRelation source = new SubqueryRelation(query);
+        source.setAlias(new TableName(null, REPLACE_WHERE_SOURCE));
+        List<MergeWhenClause> clauses = Lists.newArrayList(
+                new MergeWhenMatchedUpdateClause(null, new ArrayList<>(), true, false, pos),
+                new MergeWhenNotMatchedInsertClause(null, null, null, true, pos),
+                new MergeWhenMatchedDeleteClause(null, true, pos));
+        MergeIntoStmt ret = new MergeIntoStmt(tableRef, REPLACE_WHERE_TARGET, source, REPLACE_WHERE_SOURCE, null,
+                clauses, pos);
+        ret.setReplaceWhere((Expr) visit(context.replaceWhere));
         if (context.explainDesc() != null) {
             ret.setIsExplain(true, getExplainType(context.explainDesc()));
             if (StatementBase.ExplainLevel.ANALYZE.equals(ret.getExplainLevel())) {

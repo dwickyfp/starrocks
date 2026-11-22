@@ -30,6 +30,8 @@ public class MergeIntoStmt extends DmlStmt {
     private final String sourceAlias;
     private final Expr mergeCondition;
     private final List<MergeWhenClause> whenClauses;
+    // INSERT INTO t REPLACE WHERE pred query: the predicate, or null for a MERGE INTO
+    private Expr replaceWhere;
 
     // Set by analyzer
     private Table table;
@@ -70,6 +72,18 @@ public class MergeIntoStmt extends DmlStmt {
 
     public void setTableRef(TableRef tableRef) {
         this.tableRef = tableRef;
+    }
+
+    /**
+     * The predicate of {@code INSERT INTO t REPLACE WHERE pred query}, which is a MERGE INTO that replaces the
+     * rows of the target the predicate holds for with the rows of the query; null for a MERGE INTO.
+     */
+    public Expr getReplaceWhere() {
+        return replaceWhere;
+    }
+
+    public void setReplaceWhere(Expr replaceWhere) {
+        this.replaceWhere = replaceWhere;
     }
 
     public String getTargetAlias() {

@@ -3,7 +3,7 @@
 # the table it should leave, computed before it by a plain query (the oracle), on tens of thousands of rows
 # with NULLs, deletes, skipped rows and inserts. Also checks NOT MATCHED BY SOURCE, UPDATE SET * and INSERT *,
 # generated and AUTO_INCREMENT columns, the duplicate row error, explicit transactions and that a failed MERGE
-# changes nothing.
+# changes nothing, and INSERT INTO ... REPLACE WHERE.
 # Usage: merge_e2e.sh [host] [port]
 set -uo pipefail
 
@@ -139,6 +139,31 @@ check "generated column follows the new value" "1	x	1	10
 3	z	30	300" "$(sqldb "SELECT k1, k2, a, g FROM t3 ORDER BY k1, k2")"
 check "updated rows keep their AUTO_INCREMENT id" "0" "$(diff_count "(SELECT k1, k2, id FROM t3 WHERE k1 < 3) u" ids "k1, k2, id")"
 check "inserted row gets a new id" "1" "$(sqldb "SELECT count(*) FROM t3 WHERE k1 = 3 AND id NOT IN (SELECT id FROM ids)")"
+
+echo "== INSERT INTO ... REPLACE WHERE"
+sqldb "
+CREATE TABLE ev (dt DATE NOT NULL, id INT NOT NULL, v VARCHAR(16), n INT)
+  PRIMARY KEY (dt, id) PARTITION BY date_trunc('day', dt) DISTRIBUTED BY HASH(id) BUCKETS 3
+  PROPERTIES ('replication_num' = '1');
+INSERT INTO ev SELECT date_add('2024-01-01', g % 10), g, concat('v', g), g % 7 FROM TABLE(generate_series(1, 50000)) s(g);
+CREATE TABLE ev_new (dt DATE, id INT, v VARCHAR(16), n INT)
+  DUPLICATE KEY (dt) DISTRIBUTED BY HASH(id) BUCKETS 3 PROPERTIES ('replication_num' = '1');
+INSERT INTO ev_new SELECT '2024-01-05', g, concat('new', g), NULL FROM TABLE(generate_series(20000, 30000)) s(g);
+CREATE TABLE expect3 PRIMARY KEY (dt, id) DISTRIBUTED BY HASH(id) BUCKETS 3 PROPERTIES ('replication_num' = '1') AS
+SELECT * FROM ev WHERE dt <> '2024-01-05' UNION ALL SELECT * FROM ev_new;
+"
+sqldb "INSERT INTO ev REPLACE WHERE dt = '2024-01-05' SELECT * FROM ev_new" >/dev/null
+check "replaced table equals the oracle" "0" "$(diff_count ev expect3 "dt, id, v, n")"
+check "rows of the replaced table" "$(sqldb "SELECT count(*) FROM expect3")" "$(sqldb "SELECT count(*) FROM ev")"
+before=$(checksum ev "dt, id, v, n")
+out=$(sqldb "INSERT INTO ev REPLACE WHERE dt = '2024-01-05' SELECT '2024-01-06', 1, 'x', 1")
+check "a row outside the predicate fails" "1" "$(echo "$out" | grep -c "does not satisfy the REPLACE WHERE predicate")"
+out=$(sqldb "INSERT INTO ev REPLACE WHERE dt = '2024-01-05' SELECT '2024-01-05', 1, 'x', 1 UNION ALL SELECT '2024-01-05', 1, 'y', 2")
+check "two rows with one key fail" "1" "$(echo "$out" | grep -c "Duplicate row detected during INSERT INTO ... REPLACE WHERE")"
+check "table unchanged after the failures" "$before" "$(checksum ev "dt, id, v, n")"
+sqldb "INSERT INTO ev REPLACE WHERE dt >= '2024-01-09' SELECT * FROM ev WHERE 1 = 0" >/dev/null
+check "an empty query empties the rows of the predicate" "0" "$(sqldb "SELECT count(*) FROM ev WHERE dt >= '2024-01-09'")"
+check "other rows are kept" "$(sqldb "SELECT count(*) FROM expect3 WHERE dt < '2024-01-09'")" "$(sqldb "SELECT count(*) FROM ev")"
 
 echo "== errors"
 out=$(sqldb "MERGE INTO s USING t ON s.k = t.k WHEN MATCHED THEN DELETE")

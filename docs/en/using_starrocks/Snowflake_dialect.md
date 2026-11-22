@@ -128,6 +128,19 @@ The statement fails and changes nothing when two of the rows it writes have the 
 
 The source and the target are read once and joined once. `WHEN NOT MATCHED BY SOURCE` needs a full outer join, which reads the whole target table.
 
+## INSERT INTO ... REPLACE WHERE
+
+`INSERT INTO ... REPLACE WHERE` replaces the rows of a Primary Key table that a predicate holds for with the rows of a query, in one statement and one transaction, like `REPLACE WHERE` of Databricks.
+
+```sql
+INSERT INTO events REPLACE WHERE dt = '2024-01-05'
+SELECT dt, id, v, n FROM staged_events WHERE dt = '2024-01-05';
+```
+
+The query gives every column of the table that is not a generated column, by position. Every row of the query must satisfy the predicate, or the statement fails and changes nothing. The rows the predicate holds for and that the query does not give are deleted, so a query without rows deletes them all. A row of the query whose key is in the table is written over the row with that key. Two rows of the query with the same key fail the statement, unless `error_on_nondeterministic_merge` is `false`.
+
+Only the rows of the table that the predicate holds for are read, so a predicate on the partition column reads only those partitions.
+
 ## Limitations
 
 - `TRY_CAST` and the `TRY_TO_*` functions give `NULL` for a value that cannot be converted only while the SQL mode `ALLOW_THROW_EXCEPTION` is off, which is the default.

@@ -50,6 +50,10 @@ public class MergeIntoPrimaryKeyTest extends PlanTestBase {
                 + "properties('replication_num'='1')");
         starRocksAssert.withTable("create table msrc (k int, v varchar(20), n int, source int, target int) "
                 + "duplicate key(k) distributed by hash(k) buckets 2 properties('replication_num'='1')");
+        starRocksAssert.withTable("create table mday (dt date not null, id int not null, v varchar(10)) "
+                + "primary key(dt, id) partition by range(dt) (partition p1 values less than ('2024-01-02'), "
+                + "partition p2 values less than ('2024-01-03'), partition p3 values less than ('2024-01-04')) "
+                + "distributed by hash(id) buckets 2 properties('replication_num'='1')");
         starRocksAssert.withTable("create table mdup (k int, v int) duplicate key(k) distributed by hash(k) "
                 + "buckets 2 properties('replication_num'='1')");
     }
@@ -179,5 +183,30 @@ public class MergeIntoPrimaryKeyTest extends PlanTestBase {
                 + "values (1, 'a')", "Expected WHEN NOT MATCHED BY TARGET, but got BY foo");
         assertError("merge into mpk t using msrc s on t.k = s.k when not matched by target then delete",
                 "Expected WHEN NOT MATCHED BY SOURCE, but got BY target");
+    }
+
+    @Test
+    public void testReplaceWhere() throws Exception {
+        String plan = explain("insert into mday replace where dt = '2024-01-02' "
+                + "select dt, id, v from mday where dt = '2024-01-01'");
+        assertTrue(plan.contains("FULL OUTER JOIN"), plan);
+        // The target is filtered by the predicate before the join, so the scan prunes its partitions.
+        assertTrue(java.util.regex.Pattern.compile("PREDICATES: \\d+: dt = '2024-01-02'\n").matcher(plan).find(),
+                plan);
+        // Every row of the query is checked against the predicate (explain shortens the message).
+        assertTrue(plan.contains("assert_true(coalesce("), plan);
+        assertTrue(plan.contains("'A row of INSERT INTO ... REPLACE WHERE"), plan);
+        assertTrue(plan.contains("Duplicate row detected during INSERT INTO ... REP"), plan);
+        assertTrue(plan.contains("OLAP TABLE SINK"), plan);
+
+        connectContext.getSessionVariable().setErrorOnNondeterministicMerge(false);
+        assertFalse(explain("insert into mday replace where dt = '2024-01-02' select '2024-01-02', 1, 'a'")
+                .contains("Duplicate row detected"));
+
+        assertError("insert into mdup replace where k = 1 select 1, 2",
+                "INSERT INTO ... REPLACE WHERE is only supported for Primary Key tables");
+        assertError("insert into mday replace where dt = '2024-01-02' select '2024-01-02', 1",
+                "have different column counts");
+        assertError("insert into mday replace where zz = 1 select '2024-01-02', 1, 'a'", "Column 'zz' cannot be resolved");
     }
 }
