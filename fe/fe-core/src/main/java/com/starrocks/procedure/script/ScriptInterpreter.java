@@ -503,8 +503,32 @@ public final class ScriptInterpreter {
 
     // ------------------------------------------------ SQL ---------------------------------------------------------
 
+    /**
+     * Snowflake starts a transaction with {@code BEGIN [WORK | TRANSACTION] [NAME n]} or
+     * {@code START TRANSACTION [NAME n]}; StarRocks takes {@code BEGIN} and has no transaction names.
+     * Returns the StarRocks statement, or null when the tokens are not such a statement.
+     */
+    static String beginTransaction(List<ScriptToken> tokens) {
+        int at;
+        if (!tokens.isEmpty() && tokens.get(0).is("BEGIN")) {
+            at = 1;
+            if (at < tokens.size() && (tokens.get(at).is("WORK") || tokens.get(at).is("TRANSACTION"))) {
+                at++;
+            }
+        } else if (tokens.size() >= 2 && tokens.get(0).is("START") && tokens.get(1).is("TRANSACTION")) {
+            at = 2;
+        } else {
+            return null;
+        }
+        if (at + 1 < tokens.size() && tokens.get(at).is("NAME")) {
+            at += 2;
+        }
+        return at == tokens.size() ? "BEGIN" : null;
+    }
+
     private void runSql(ScriptNode.Sql s, Scope scope) {
-        String sql = bind(s.statement, scope, false);
+        String begin = beginTransaction(s.statement.getTokens());
+        String sql = begin != null ? begin : bind(s.statement, scope, false);
         if (s.into == null) {
             long rows;
             try {

@@ -125,4 +125,24 @@ public class ScriptParserTest {
         Assertions.assertEquals("NULL", ScriptValue.nullOf("NULL_TYPE").toSqlLiteral());
         Assertions.assertEquals("DECIMAL(9, 2)", ScriptValue.normalizeType("DECIMAL64(9, 2)"));
     }
+
+    private static String begin(String sql) {
+        List<ScriptToken> tokens = ScriptLexer.tokenize(sql).stream()
+                .filter(t -> t.getKind() != ScriptToken.Kind.EOF).toList();
+        return ScriptInterpreter.beginTransaction(tokens);
+    }
+
+    @Test
+    public void testSnowflakeBeginTransaction() {
+        Assertions.assertEquals("BEGIN", begin("BEGIN"));
+        Assertions.assertEquals("BEGIN", begin("BEGIN TRANSACTION"));
+        Assertions.assertEquals("BEGIN", begin("begin work"));
+        Assertions.assertEquals("BEGIN", begin("BEGIN TRANSACTION NAME t1"));
+        Assertions.assertEquals("BEGIN", begin("START TRANSACTION"));
+        Assertions.assertEquals("BEGIN", begin("START TRANSACTION NAME t1"));
+        // left to StarRocks as written
+        Assertions.assertNull(begin("START TRANSACTION WITH LABEL l1"));
+        Assertions.assertNull(begin("COMMIT"));
+        Assertions.assertNull(begin("INSERT INTO t VALUES (1)"));
+    }
 }
