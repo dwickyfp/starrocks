@@ -149,6 +149,7 @@ import com.starrocks.sql.ast.FunctionRef;
 import com.starrocks.sql.ast.GrantRoleStmt;
 import com.starrocks.sql.ast.GrantType;
 import com.starrocks.sql.ast.HintNode;
+import com.starrocks.sql.ast.InsertMultiTableStmt;
 import com.starrocks.sql.ast.InsertStmt;
 import com.starrocks.sql.ast.InstallPluginStmt;
 import com.starrocks.sql.ast.KillAnalyzeStmt;
@@ -2470,6 +2471,12 @@ public class AuthorizerStmtVisitor implements AstVisitorExtendInterface<Void, Co
 
     @Override
     public Void visitDescProcedureStatement(DescProcedureStmt statement, ConnectContext context) {
+        return null;
+    }
+
+    @Override
+    public Void visitInsertMultiTableStatement(InsertMultiTableStmt statement, ConnectContext context) {
+        // every INSERT it runs is checked when it runs
         return null;
     }
 

@@ -237,6 +237,7 @@ import com.starrocks.sql.ast.ImportColumnsStmt;
 import com.starrocks.sql.ast.ImportMetadataStmt;
 import com.starrocks.sql.ast.ImportWhereStmt;
 import com.starrocks.sql.ast.IndexDef;
+import com.starrocks.sql.ast.InsertMultiTableStmt;
 import com.starrocks.sql.ast.InsertStmt;
 import com.starrocks.sql.ast.InstallPluginStmt;
 import com.starrocks.sql.ast.IntersectRelation;
@@ -3073,6 +3074,64 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         }
         ret.setHintNodes(hintMap.get(context));
         return ret;
+    }
+
+    /**
+     * {@code INSERT ALL | FIRST}: keeps the SQL text of the query, the conditions and the values, which run as one
+     * {@code INSERT INTO ... SELECT} per target table.
+     */
+    @Override
+    public ParseNode visitInsertMultiTableStatement(
+            com.starrocks.sql.parser.StarRocksParser.InsertMultiTableStatementContext context) {
+        boolean first = context.FIRST() != null;
+        List<InsertMultiTableStmt.Branch> branches = new ArrayList<>();
+        if (!context.insertMultiTableWhen().isEmpty()) {
+            for (com.starrocks.sql.parser.StarRocksParser.InsertMultiTableWhenContext when : context.insertMultiTableWhen()) {
+                branches.add(new InsertMultiTableStmt.Branch(extractRawText(when.condition), false,
+                        buildMultiTableIntos(when.insertMultiTableInto())));
+            }
+            if (context.ELSE() != null) {
+                branches.add(new InsertMultiTableStmt.Branch(null, true, buildMultiTableIntos(
+                        context.insertMultiTableInto())));
+            }
+        } else {
+            if (first) {
+                throw new ParsingException("INSERT FIRST needs WHEN clauses", createPos(context));
+            }
+            branches.add(new InsertMultiTableStmt.Branch(null, false,
+                    buildMultiTableIntos(context.insertMultiTableInto())));
+        }
+        return new InsertMultiTableStmt(first, branches, extractRawText(context.queryStatement()), createPos(context));
+    }
+
+    private List<InsertMultiTableStmt.Into> buildMultiTableIntos(
+            List<com.starrocks.sql.parser.StarRocksParser.InsertMultiTableIntoContext> contexts) {
+        List<InsertMultiTableStmt.Into> intos = new ArrayList<>();
+        for (com.starrocks.sql.parser.StarRocksParser.InsertMultiTableIntoContext into : contexts) {
+            QualifiedName name = normalizeName(getQualifiedName(into.qualifiedName()));
+            List<String> columns = null;
+            if (into.columnAliases() != null) {
+                columns = new ArrayList<>();
+                for (com.starrocks.sql.parser.StarRocksParser.IdentifierContext column : into.columnAliases().identifier()) {
+                    columns.add(((Identifier) visit(column)).getValue());
+                }
+            }
+            List<String> values = null;
+            if (into.expressionsWithDefault() != null) {
+                values = new ArrayList<>();
+                for (com.starrocks.sql.parser.StarRocksParser.ExpressionOrDefaultContext value :
+                        into.expressionsWithDefault().expressionOrDefault()) {
+                    values.add(value.DEFAULT() != null ? null : extractRawText(value.expression()));
+                }
+                if (columns != null && columns.size() != values.size()) {
+                    throw new ParsingException(String.format("INTO %s lists %d columns but %d values",
+                            extractRawText(into.qualifiedName()), columns.size(), values.size()), createPos(into));
+                }
+            }
+            intos.add(new InsertMultiTableStmt.Into(name.getParts(), extractRawText(into.qualifiedName()), columns,
+                    values));
+        }
+        return intos;
     }
 
     @Override

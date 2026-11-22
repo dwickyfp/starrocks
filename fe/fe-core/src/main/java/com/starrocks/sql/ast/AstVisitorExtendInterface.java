@@ -527,6 +527,10 @@ public interface AstVisitorExtendInterface<R, C> extends AstVisitor<R, C> {
         return visitDDLStatement(statement, context);
     }
 
+    default R visitInsertMultiTableStatement(InsertMultiTableStmt statement, C context) {
+        return visitStatement(statement, context);
+    }
+
     // ---------------------------------------- FailPoint Statement ----------------------------------------------------
     default R visitUpdateFailPointStatusStatement(UpdateFailPointStatusStatement statement, C context) {
         return visitStatement(statement, context);

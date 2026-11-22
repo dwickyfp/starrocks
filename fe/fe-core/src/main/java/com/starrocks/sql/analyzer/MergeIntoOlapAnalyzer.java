@@ -85,13 +85,14 @@ import java.util.TreeSet;
  * <p>A FULL OUTER JOIN is used only when a WHEN NOT MATCHED BY SOURCE clause needs the target rows that no
  * source row matches; the source then gets a marker column that tells a source row from a missing one.
  */
-final class MergeIntoOlapAnalyzer {
+public final class MergeIntoOlapAnalyzer {
     static final String ACTION_COLUMN = "__merge_action";
     private static final String ROWS_COLUMN = "__merge_rows";
     private static final String SOURCE_ROW_COLUMN = "__merge_source_row";
     private static final String SUBQUERY_ALIAS = "__MERGE__";
     private static final int UPSERT = 0;
     private static final int DELETE = 1;
+    private static final String CLAUSE = "MERGE INTO INSERT";
 
     private MergeIntoOlapAnalyzer() {
     }
@@ -269,7 +270,7 @@ final class MergeIntoOlapAnalyzer {
                 if (column.isGeneratedColumn()) {
                     throw new SemanticException("generated column cannot be updated: " + column.getName());
                 }
-                Expr expr = assignment.getExpr() instanceof DefaultValueExpr ? defaultValue(column)
+                Expr expr = assignment.getExpr() instanceof DefaultValueExpr ? defaultValue(column, CLAUSE)
                         : assignment.getExpr();
                 values.put(column.getName().toLowerCase(), expr);
             }
@@ -308,7 +309,7 @@ final class MergeIntoOlapAnalyzer {
             if (!seen.add(column.getName())) {
                 ErrorReport.reportSemanticException(ErrorCode.ERR_DUP_FIELDNAME, column.getName());
             }
-            Expr expr = exprs.get(i) instanceof DefaultValueExpr ? defaultValue(column) : exprs.get(i);
+            Expr expr = exprs.get(i) instanceof DefaultValueExpr ? defaultValue(column, CLAUSE) : exprs.get(i);
             values.put(column.getName().toLowerCase(), expr);
         }
         for (Column column : writable) {
@@ -317,7 +318,7 @@ final class MergeIntoOlapAnalyzer {
                     throw new SemanticException("MERGE INTO INSERT must give a value for the key column '%s'",
                             column.getName());
                 }
-                values.put(column.getName().toLowerCase(), defaultValue(column));
+                values.put(column.getName().toLowerCase(), defaultValue(column, CLAUSE));
             }
         }
         return values;
@@ -327,12 +328,12 @@ final class MergeIntoOlapAnalyzer {
      * The value of a column that is not given, like an INSERT that leaves it out. An AUTO_INCREMENT column gets
      * NULL, which the table sink fills with a new ID.
      */
-    private static Expr defaultValue(Column column) {
+    public static Expr defaultValue(Column column, String statement) {
         Column.DefaultValueType type = column.getDefaultValueType();
         if (column.isAutoIncrement() || type == Column.DefaultValueType.NULL) {
             if (!column.isAllowNull() && !column.isAutoIncrement()) {
                 throw new SemanticException("Column '%s' is not nullable and has no default value; "
-                        + "MERGE INTO INSERT must give a value for it", column.getName());
+                        + "%s must give a value for it", column.getName(), statement);
             }
             return new NullLiteral();
         }

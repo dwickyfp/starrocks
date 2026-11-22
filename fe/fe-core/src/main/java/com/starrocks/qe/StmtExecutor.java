@@ -206,6 +206,7 @@ import com.starrocks.sql.ast.ExecuteStmt;
 import com.starrocks.sql.ast.ExportStmt;
 import com.starrocks.sql.ast.HintNode;
 import com.starrocks.sql.ast.IcebergRewriteStmt;
+import com.starrocks.sql.ast.InsertMultiTableStmt;
 import com.starrocks.sql.ast.InsertStmt;
 import com.starrocks.sql.ast.KillAnalyzeStmt;
 import com.starrocks.sql.ast.KillStmt;
@@ -1282,6 +1283,8 @@ public class StmtExecutor {
                 handleSetCatalogStmt();
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 handleCreateTableAsSelectStmt(beginTimeInNanoSecond);
+            } else if (parsedStmt instanceof InsertMultiTableStmt insertMultiTableStmt) {
+                InsertMultiTableExecutor.execute(insertMultiTableStmt, context);
             } else if (parsedStmt instanceof DmlStmt dmlStmt) {
                 execPlan = handleDMLStmtRetryingPlainInsertConflict(execPlan, dmlStmt);
             } else if (parsedStmt instanceof DdlStmt) {

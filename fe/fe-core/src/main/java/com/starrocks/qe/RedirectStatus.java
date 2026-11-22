@@ -129,6 +129,7 @@ import com.starrocks.sql.ast.ExecuteStmt;
 import com.starrocks.sql.ast.ExportStmt;
 import com.starrocks.sql.ast.GrantRoleStmt;
 import com.starrocks.sql.ast.HelpStmt;
+import com.starrocks.sql.ast.InsertMultiTableStmt;
 import com.starrocks.sql.ast.InsertStmt;
 import com.starrocks.sql.ast.InstallPluginStmt;
 import com.starrocks.sql.ast.KillAnalyzeStmt;
@@ -1810,6 +1811,13 @@ public class RedirectStatus {
 
         @Override
         public RedirectStatus visitRollbackStatement(RollbackStmt statement, Void context) {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
+
+        @Override
+        public RedirectStatus visitInsertMultiTableStatement(InsertMultiTableStmt statement, Void context) {
+            // The INSERT statements and the transaction run through internal executors, which do not forward
+            // on their own.
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
 

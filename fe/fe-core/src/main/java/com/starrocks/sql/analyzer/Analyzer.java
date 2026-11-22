@@ -15,6 +15,7 @@
 package com.starrocks.sql.analyzer;
 
 import com.starrocks.qe.ConnectContext;
+import com.starrocks.qe.InsertMultiTableExecutor;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.AddSqlBlackListStmt;
 import com.starrocks.sql.ast.AddSqlDigestBlackListStmt;
@@ -107,6 +108,7 @@ import com.starrocks.sql.ast.DropUserStmt;
 import com.starrocks.sql.ast.ExecuteAsStmt;
 import com.starrocks.sql.ast.ExecuteStmt;
 import com.starrocks.sql.ast.ExportStmt;
+import com.starrocks.sql.ast.InsertMultiTableStmt;
 import com.starrocks.sql.ast.InsertStmt;
 import com.starrocks.sql.ast.InstallPluginStmt;
 import com.starrocks.sql.ast.LoadStmt;
@@ -1356,6 +1358,13 @@ public class Analyzer {
         @Override
         public Void visitRollbackStatement(RollbackStmt statement, ConnectContext context) {
             TransactionAnalyzer.analyze(statement, context);
+            return null;
+        }
+
+        @Override
+        public Void visitInsertMultiTableStatement(InsertMultiTableStmt statement, ConnectContext context) {
+            // Checks the INTO clauses; every INSERT it runs is analyzed when it runs.
+            InsertMultiTableExecutor.targets(statement, context);
             return null;
         }
 

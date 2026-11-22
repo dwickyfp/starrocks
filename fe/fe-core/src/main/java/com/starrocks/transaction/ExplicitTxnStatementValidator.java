@@ -22,6 +22,7 @@ import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.analyzer.AnalyzerUtils;
 import com.starrocks.sql.ast.DmlStmt;
+import com.starrocks.sql.ast.InsertMultiTableStmt;
 import com.starrocks.sql.ast.InsertStmt;
 import com.starrocks.sql.ast.QueryStatement;
 import com.starrocks.sql.ast.SetStmt;
@@ -47,7 +48,8 @@ public final class ExplicitTxnStatementValidator {
         }
 
         boolean isSet = statement instanceof SetStmt;
-        boolean isDml = statement instanceof DmlStmt; // insert/update/delete
+        // insert/update/delete, and INSERT ALL | FIRST, which runs its INSERT statements in the transaction
+        boolean isDml = statement instanceof DmlStmt || statement instanceof InsertMultiTableStmt;
         boolean isSelect = statement instanceof QueryStatement;
         boolean isShow = statement instanceof ShowStmt;
         boolean isTransactionStmt = statement instanceof BeginStmt

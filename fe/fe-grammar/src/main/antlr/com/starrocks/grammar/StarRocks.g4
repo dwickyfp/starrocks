@@ -108,6 +108,7 @@ statement
     | deleteStatement
     | mergeIntoStatement
     | insertReplaceWhereStatement
+    | insertMultiTableStatement
 
     // Routine Statement
     | createRoutineLoadStatement
@@ -1430,6 +1431,20 @@ insertStatement
 
 insertReplaceWhereStatement
     : explainDesc? INSERT INTO qualifiedName REPLACE WHERE replaceWhere=expression queryStatement
+    ;
+
+// Snowflake multi-table insert: INSERT ALL | FIRST, with INTO clauses or WHEN ... THEN INTO clauses
+insertMultiTableStatement
+    : INSERT (ALL | FIRST) (insertMultiTableInto+ | insertMultiTableWhen+ (ELSE insertMultiTableInto+)?)
+        queryStatement
+    ;
+
+insertMultiTableWhen
+    : WHEN condition=expression THEN insertMultiTableInto+
+    ;
+
+insertMultiTableInto
+    : INTO qualifiedName columnAliases? (VALUES expressionsWithDefault)?
     ;
 
 // for compatibility with the case 'LABEL before columnAliases'

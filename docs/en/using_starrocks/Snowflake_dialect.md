@@ -141,6 +141,24 @@ The query gives every column of the table that is not a generated column, by pos
 
 Only the rows of the table that the predicate holds for are read, so a predicate on the partition column reads only those partitions.
 
+## INSERT ALL and INSERT FIRST
+
+`INSERT ALL` and `INSERT FIRST` write the rows of one query into several tables, in one statement and one transaction.
+
+```sql
+INSERT ALL
+  WHEN amount > 1000 THEN INTO large_orders (id, amount) VALUES (id, amount)
+  WHEN amount > 0 THEN INTO orders
+  ELSE INTO rejected_orders (id, reason) VALUES (id, 'no amount')
+SELECT id, customer, amount FROM staged_orders;
+```
+
+Without `WHEN`, `INSERT ALL` writes every row of the query into every `INTO` table. With `WHEN`, `INSERT ALL` writes a row for every condition that holds for it, and `INSERT FIRST` for the first one only. `ELSE` takes the rows that no condition holds for; a condition that is `NULL` does not hold.
+
+`INTO table` without `VALUES` writes the columns of the query into the columns of the table, or into the listed columns. `VALUES` takes expressions on the columns of the query, and `DEFAULT` for the default value of a column, which needs a column list. A table is written by one `INSERT`, which writes every column that one of its `INTO` clauses lists; an `INTO` clause that leaves out such a column writes its default value. So the `INTO` clauses of one table either all list their columns or none does, and those without `VALUES` list the same columns in the same order.
+
+The affected row count is the number of rows written into all the tables. If writing one table fails, no table changes. In an explicit transaction, the statement runs in that transaction; if it fails after a table is written, the whole transaction is rolled back, and the error says so.
+
 ## Limitations
 
 - `TRY_CAST` and the `TRY_TO_*` functions give `NULL` for a value that cannot be converted only while the SQL mode `ALLOW_THROW_EXCEPTION` is off, which is the default.
@@ -149,3 +167,4 @@ Only the rows of the table that the predicate holds for are read, so a predicate
 - In `QUALIFY`, an aggregate outside a window function is not supported. In a select list with a star, a column in `QUALIFY` must be one of the columns the star expands to.
 - `UNPIVOT` names columns, not expressions, and is supported after the `FROM` clause of a query, not after a single relation in a join.
 - `MERGE INTO` is not supported for a Primary Key table while its schema is being changed. `WHEN NOT MATCHED BY SOURCE` and `UPDATE SET *` are not supported for Iceberg tables.
+- `INSERT ALL` and `INSERT FIRST` run the query once for every table they write, so a query with non-deterministic functions, such as `rand()` or `now()`, can give different values in different tables. The tables must be in one database. A query that reads one of the tables fails when more than one table is written, as a transaction cannot read a table it has written. `INSERT OVERWRITE ALL` and `EXPLAIN` are not supported.
