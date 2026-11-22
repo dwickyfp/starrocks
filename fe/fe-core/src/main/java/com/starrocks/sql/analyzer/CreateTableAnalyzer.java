@@ -121,7 +121,10 @@ public class CreateTableAnalyzer {
             // Paimon creation checks the native catalog; a cached positive may refer to an externally dropped table.
             boolean tableExists = preResolved != null ? preResolved.tableExists()
                     : GlobalStateMgr.getCurrentState().getMetadataMgr().tableExists(context, catalogName, db, tableName);
-            if (tableExists && !statement.isSetIfNotExists()) {
+            if (statement.isOrAlter() && !CatalogMgr.isInternalCatalog(catalogName)) {
+                throw new SemanticException("CREATE OR ALTER TABLE is supported in the default catalog only");
+            }
+            if (tableExists && !statement.isSetIfNotExists() && !statement.isOrAlter()) {
                 ErrorReport.reportSemanticException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
         }

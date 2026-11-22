@@ -161,6 +161,21 @@ public class CreateTableStmt extends DdlStmt {
         columnDefs.add(columnDef);
     }
 
+    /** CREATE OR ALTER TABLE: the column definitions as written, by column, to add the new ones to the table. */
+    private List<String> columnSqls;
+
+    public boolean isOrAlter() {
+        return columnSqls != null;
+    }
+
+    public List<String> getColumnSqls() {
+        return columnSqls;
+    }
+
+    public void setColumnSqls(List<String> columnSqls) {
+        this.columnSqls = columnSqls;
+    }
+
     public boolean isSetIfNotExists() {
         return ifNotExists;
     }

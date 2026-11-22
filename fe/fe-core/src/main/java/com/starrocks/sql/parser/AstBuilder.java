@@ -927,6 +927,11 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         if (context.columnDesc() != null) {
             columnDefs = getColumnDefs(context.columnDesc());
         }
+        if (context.ALTER() != null && (context.TEMPORARY() != null || context.EXTERNAL() != null
+                || context.IF() != null)) {
+            throw new ParsingException("CREATE OR ALTER TABLE cannot be TEMPORARY, EXTERNAL or IF NOT EXISTS",
+                    createPos(context));
+        }
         if (context.TEMPORARY() != null) {
             if (!Config.enable_experimental_temporary_table) {
                 throw new ParsingException(
@@ -956,7 +961,7 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
                     NodePosition.ZERO);
         }
 
-        return new CreateTableStmt(
+        CreateTableStmt createTableStmt = new CreateTableStmt(
                 context.IF() != null,
                 context.EXTERNAL() != null,
                 tableRef,
@@ -977,6 +982,10 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
                 context.orderByDesc() == null ? null :
                         visit(context.orderByDesc().sortItem(), OrderByElement.class)
         );
+        if (context.ALTER() != null) {
+            createTableStmt.setColumnSqls(context.columnDesc().stream().map(AstBuilder::originalText).toList());
+        }
+        return createTableStmt;
     }
 
     private PartitionDesc generateMulitListPartitionDesc(com.starrocks.sql.parser.StarRocksParser.PartitionDescContext context,

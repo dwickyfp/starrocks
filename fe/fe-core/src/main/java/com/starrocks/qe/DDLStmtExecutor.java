@@ -16,6 +16,7 @@ package com.starrocks.qe;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.starrocks.alter.CreateOrAlterTableExecutor;
 import com.starrocks.alter.SystemHandler;
 import com.starrocks.authentication.AuthenticationMgr;
 import com.starrocks.authentication.UserAuthenticationInfo;
@@ -339,7 +340,11 @@ public class DDLStmtExecutor {
         @Override
         public ShowResultSet visitCreateTableStatement(CreateTableStmt stmt, ConnectContext context) {
             ErrorReport.wrapWithRuntimeException(() -> {
-                context.getGlobalStateMgr().getMetadataMgr().createTable(context, stmt);
+                if (stmt.isOrAlter()) {
+                    CreateOrAlterTableExecutor.execute(stmt, context);
+                } else {
+                    context.getGlobalStateMgr().getMetadataMgr().createTable(context, stmt);
+                }
             });
             return null;
         }
