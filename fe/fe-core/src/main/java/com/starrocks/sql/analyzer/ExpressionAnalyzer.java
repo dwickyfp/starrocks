@@ -100,6 +100,7 @@ import com.starrocks.sql.ast.expression.UserVariableExpr;
 import com.starrocks.sql.ast.expression.VariableExpr;
 import com.starrocks.sql.common.LargeInPredicateException;
 import com.starrocks.sql.common.TypeManager;
+import com.starrocks.tablestream.TableStreamMgr;
 import com.starrocks.thrift.TDictQueryExpr;
 import com.starrocks.thrift.TFunctionBinaryType;
 import com.starrocks.type.AnyMapType;
@@ -1782,6 +1783,10 @@ public class ExpressionAnalyzer {
             } else if (funcType.equalsIgnoreCase(FunctionSet.SESSION_ID)) {
                 node.setType(VarcharType.VARCHAR);
                 node.setStrValue(session.getSessionId().toString());
+            } else if (funcType.equalsIgnoreCase(TableStreamMgr.HAS_DATA)) {
+                // evaluated on the FE from the metadata of the stream, so the query reads no data for it
+                node.setType(BooleanType.BOOLEAN);
+                node.setIntValue(TableStreamMgr.hasData(node.getStrValue(), session.getDatabase()) ? 1 : 0);
             }
             return null;
         }

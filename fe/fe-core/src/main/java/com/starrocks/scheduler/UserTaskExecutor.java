@@ -37,6 +37,7 @@ import com.starrocks.sql.ast.task.CreateTaskStmt;
 import com.starrocks.sql.ast.task.DescTaskStmt;
 import com.starrocks.sql.ast.task.ExecuteTaskStmt;
 import com.starrocks.sql.ast.task.ShowTasksStmt;
+import com.starrocks.tablestream.TableStreamMgr;
 import com.starrocks.type.TypeFactory;
 
 import java.util.ArrayList;
@@ -107,6 +108,7 @@ public final class UserTaskExecutor {
         UserTaskSpec.applyOptions(task, stmt.getOptions());
         UserTaskSpec.setPredecessors(task, predecessorNames(task, stmt.getPredecessors()));
         UserTaskSpec.setCondition(task, stmt.getCondition());
+        checkStreams(task);
         UserTaskSpec.parseBody(task.getDefinition(), ctx.getSessionVariable());
         task.setCreateUser(ctx.getCurrentUserIdentity().getUser());
         task.setUserIdentity(ctx.getCurrentUserIdentity());
@@ -175,6 +177,7 @@ public final class UserTaskExecutor {
                 break;
             case MODIFY_WHEN:
                 UserTaskSpec.setCondition(changed, stmt.getCondition());
+                checkStreams(changed);
                 break;
             case REMOVE_WHEN:
                 UserTaskSpec.setCondition(changed, null);
@@ -276,10 +279,20 @@ public final class UserTaskExecutor {
         }
         row.add(options.isEmpty() ? "" : new TreeMap<>(options).toString());
         row.add(String.join(",", UserTaskSpec.getPredecessors(task)));
-        String condition = task.getTaskOption(UserTaskSpec.WHEN);
-        row.add(condition == null ? "" : "SYSTEM$PREDECESSORS_STATE('" + condition + "')");
+        UserTaskCondition condition = UserTaskSpec.getWhen(task);
+        row.add(condition == null ? "" : condition.toString());
         row.add(Strings.nullToEmpty(UserTaskSpec.getFinalizeRoot(task)));
         return row;
+    }
+
+    /** The streams the WHEN condition of the task reads must exist, in the database of the task by default. */
+    private static void checkStreams(Task task) {
+        UserTaskCondition when = UserTaskSpec.getWhen(task);
+        if (when != null) {
+            for (String stream : when.streamNames()) {
+                TableStreamMgr.resolve(stream, task.getDbName());
+            }
+        }
     }
 
     /**

@@ -781,9 +781,9 @@ taskPredecessorList
     : qualifiedName (',' qualifiedName)*
     ;
 
-// Only SYSTEM$PREDECESSORS_STATE('<state>') is supported.
+// SYSTEM$PREDECESSORS_STATE('<state>') and SYSTEM$STREAM_HAS_DATA('<stream>') combined with AND, OR and NOT
 taskCondition
-    : functionName=identifier '(' state=string ')'
+    : expression
     ;
 
 taskOption

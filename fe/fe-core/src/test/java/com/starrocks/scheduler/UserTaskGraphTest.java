@@ -133,7 +133,10 @@ public class UserTaskGraphTest extends MVTestBase {
         assertFails("CREATE TASK g_x AFTER g_root WHEN SYSTEM$PREDECESSORS_STATE('SOMETIMES') AS SELECT 1",
                 "Unknown SYSTEM$PREDECESSORS_STATE value");
         assertFails("CREATE TASK g_x AFTER g_root WHEN SYSTEM$STREAM_HAS_DATA('s') AS SELECT 1",
-                "only SYSTEM$PREDECESSORS_STATE");
+                "Stream s does not exist in database ugraph");
+        assertFails("CREATE TASK g_x AFTER g_root WHEN 1 = 1 AS SELECT 1", "Unsupported task condition");
+        assertFails("CREATE TASK g_x AFTER g_root WHEN NOT SYSTEM$PREDECESSORS_STATE('ALL_DONE') AS SELECT 1",
+                "must be a condition of its own");
         assertFails("CREATE TASK g_x AFTER = 'g_root' AS SELECT 1", "is a clause, not an option");
         // two roots in one graph
         assertFails("CREATE TASK g_x AFTER g_a, g_other AS SELECT 1", "are in different task graphs");

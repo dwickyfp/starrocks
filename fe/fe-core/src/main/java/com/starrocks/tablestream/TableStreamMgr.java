@@ -21,6 +21,7 @@ import com.starrocks.catalog.Partition;
 import com.starrocks.catalog.PhysicalPartition;
 import com.starrocks.catalog.Table;
 import com.starrocks.common.DdlException;
+import com.starrocks.common.Pair;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.analyzer.AnalyzerUtils;
@@ -59,6 +60,7 @@ public final class TableStreamMgr {
     public static final String ROW_ID = "METADATA$ROW_ID";
     public static final String CURRENT_ALIAS = "__stream_cur";
     public static final String OFFSET_ALIAS = "__stream_old";
+    public static final String HAS_DATA = "SYSTEM$STREAM_HAS_DATA";
 
     // stream id -> id of the transaction whose commit is moving its offset, on the leader
     private static final Map<Long, Long> RESERVED = new HashMap<>();
@@ -170,6 +172,55 @@ public final class TableStreamMgr {
             }
         }
         return null;
+    }
+
+    /**
+     * The stream a name gives, {@code stream} or {@code db.stream}, with {@code defaultDb} for an unqualified one.
+     */
+    public static Pair<Database, TableStream> resolve(String name, String defaultDb) {
+        String[] parts = name.trim().split("\\.");
+        String dbName;
+        String streamName;
+        if (parts.length == 1) {
+            dbName = defaultDb;
+            streamName = parts[0];
+        } else if (parts.length == 2) {
+            dbName = parts[0];
+            streamName = parts[1];
+        } else {
+            throw new SemanticException("Invalid stream name '%s': use stream or db.stream", name);
+        }
+        if (dbName == null || dbName.isEmpty()) {
+            throw new SemanticException("No database selected for stream %s", name);
+        }
+        Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb(dbName);
+        TableStream stream = db == null ? null : get(db, streamName);
+        if (stream == null) {
+            throw new SemanticException("Stream %s does not exist in database %s", streamName, dbName);
+        }
+        return Pair.create(db, stream);
+    }
+
+    /**
+     * SYSTEM$STREAM_HAS_DATA: whether the table of the stream changed since its offset, from the versions of its
+     * partitions alone, without reading data. Changes that cancel out (a row inserted and deleted again) count as
+     * data, as in Snowflake. A stale stream is an error: its changes are unknown.
+     */
+    public static boolean hasData(String name, String defaultDb) {
+        TableStream stream = resolve(name, defaultDb).second;
+        OlapTable table = tableOf(stream);
+        String stale = staleReason(stream, table, System.currentTimeMillis());
+        if (stale != null) {
+            throw new SemanticException("Stream %s is stale: %s. Recreate the stream to read the table again",
+                    stream.getName(), stale);
+        }
+        Map<Long, Long> offset = stream.getOffsetVersions();
+        for (PhysicalPartition partition : table.getAllPhysicalPartitions()) {
+            if (partition.getVisibleVersion() != version(offset, partition.getId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Why the table cannot have a stream of this kind, or null. */

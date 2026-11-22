@@ -20,6 +20,7 @@ import com.starrocks.common.ErrorReport;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.scheduler.Constants;
 import com.starrocks.scheduler.Task;
+import com.starrocks.scheduler.UserTaskCondition;
 import com.starrocks.scheduler.UserTaskSpec;
 import com.starrocks.sql.ast.TaskName;
 import com.starrocks.sql.ast.task.AlterTaskOptionsStmt;
@@ -41,12 +42,10 @@ public class UserTaskAnalyzer {
         scratch.setSource(Constants.TaskSource.USER_SQL);
         UserTaskSpec.applyOptions(scratch, stmt.getOptions());
         stmt.getPredecessors().forEach(UserTaskAnalyzer::checkTaskName);
-        if (stmt.getCondition() != null) {
-            if (stmt.getPredecessors().isEmpty()) {
-                throw new SemanticException("WHEN needs AFTER: only a child task can have a condition on its "
-                        + "predecessors");
-            }
-            UserTaskSpec.PredecessorsState.parse(stmt.getCondition());
+        UserTaskCondition when = UserTaskCondition.parse(stmt.getCondition());
+        if (when != null && when.getState() != null && stmt.getPredecessors().isEmpty()) {
+            throw new SemanticException("SYSTEM$PREDECESSORS_STATE in WHEN needs AFTER: only a child task can have "
+                    + "a condition on its predecessors");
         }
         UserTaskSpec.parseBody(stmt.getBody(), context.getSessionVariable());
     }
@@ -72,7 +71,7 @@ public class UserTaskAnalyzer {
                 stmt.getPredecessors().forEach(UserTaskAnalyzer::checkTaskName);
                 break;
             case MODIFY_WHEN:
-                UserTaskSpec.PredecessorsState.parse(stmt.getCondition());
+                UserTaskCondition.parse(stmt.getCondition());
                 break;
             case REMOVE_WHEN:
                 break;

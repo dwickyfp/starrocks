@@ -64,6 +64,9 @@ public final class UserTaskSpec {
     // separated, and the SYSTEM$PREDECESSORS_STATE value.
     public static final String AFTER = "AFTER";
     public static final String WHEN = "WHEN";
+    public static final String USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS =
+            "USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS";
+    public static final long DEFAULT_MINIMUM_TRIGGER_INTERVAL_S = 30;
 
     // Snowflake suspends a task after 10 consecutive failed runs by default.
     public static final int DEFAULT_SUSPEND_TASK_AFTER_NUM_FAILURES = 10;
@@ -116,6 +119,9 @@ public final class UserTaskSpec {
                 case USER_TASK_TIMEOUT_MS:
                     taskOptions.put(USER_TASK_TIMEOUT_MS, String.valueOf(parsePositiveLong(key, value)));
                     break;
+                case USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS:
+                    taskOptions.put(key, String.valueOf(parsePositiveLong(key, value)));
+                    break;
                 case SUSPEND_TASK_AFTER_NUM_FAILURES:
                     long failures = parseNonNegativeLong(key, value);
                     if (failures > Integer.MAX_VALUE) {
@@ -163,6 +169,7 @@ public final class UserTaskSpec {
                     break;
                 case COMMENT:
                 case USER_TASK_TIMEOUT_MS:
+                case USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS:
                 case SUSPEND_TASK_AFTER_NUM_FAILURES:
                 case TASK_AUTO_RETRY_ATTEMPTS:
                 case FINALIZE:
@@ -251,22 +258,39 @@ public final class UserTaskSpec {
         task.setTaskOptions(taskOptions);
     }
 
+    /** The state the predecessors of the task must be in for it to run: ALL_SUCCEEDED unless WHEN names one. */
     public static PredecessorsState getCondition(Task task) {
-        String when = task.getTaskOption(WHEN);
-        return when == null ? PredecessorsState.ALL_SUCCEEDED : PredecessorsState.valueOf(when);
+        UserTaskCondition when = getWhen(task);
+        return when == null || when.getState() == null ? PredecessorsState.ALL_SUCCEEDED : when.getState();
+    }
+
+    /** The WHEN condition of the task, or null. */
+    public static UserTaskCondition getWhen(Task task) {
+        return UserTaskCondition.parse(task.getTaskOption(WHEN));
     }
 
     /**
-     * Sets the WHEN condition; null removes it, which means ALL_SUCCEEDED.
+     * Sets the WHEN condition, the text {@link UserTaskCondition#toOption()} gives; null removes it.
      */
     public static void setCondition(Task task, String condition) {
         Map<String, String> taskOptions = new HashMap<>(task.getTaskOptions());
-        if (condition == null) {
+        UserTaskCondition when = UserTaskCondition.parse(condition);
+        String option = when == null ? null : when.toOption();
+        if (option == null) {
             taskOptions.remove(WHEN);
         } else {
-            taskOptions.put(WHEN, PredecessorsState.parse(condition).name());
+            taskOptions.put(WHEN, option);
         }
         task.setTaskOptions(taskOptions);
+    }
+
+    /**
+     * The minimum time between two runs of a triggered task: a task without SCHEDULE whose WHEN condition reads
+     * streams runs when they have data, at most once per this many seconds.
+     */
+    public static long getMinimumTriggerIntervalS(Task task) {
+        String value = task.getTaskOption(USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS);
+        return value == null ? DEFAULT_MINIMUM_TRIGGER_INTERVAL_S : Long.parseLong(value);
     }
 
     public static String getFinalizeRoot(Task task) {

@@ -56,9 +56,10 @@ public final class UserTaskGraph {
         String finalizeRoot = UserTaskSpec.getFinalizeRoot(task);
         boolean scheduled = task.getSchedule() != null;
 
-        if (task.getTaskOption(UserTaskSpec.WHEN) != null && predecessors.isEmpty()) {
-            throw new DdlException("Task [" + name + "] has a WHEN condition but no AFTER: only a child task, "
-                    + "which runs after other tasks, can have a condition on its predecessors");
+        UserTaskCondition when = UserTaskSpec.getWhen(task);
+        if (when != null && when.getState() != null && predecessors.isEmpty()) {
+            throw new DdlException("Task [" + name + "] has a SYSTEM$PREDECESSORS_STATE condition but no AFTER: only "
+                    + "a child task, which runs after other tasks, can have a condition on its predecessors");
         }
         if (!predecessors.isEmpty()) {
             if (scheduled) {

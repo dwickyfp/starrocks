@@ -111,6 +111,7 @@ import com.starrocks.sql.optimizer.operator.scalar.SubfieldOperator;
 import com.starrocks.sql.optimizer.operator.scalar.SubqueryOperator;
 import com.starrocks.sql.optimizer.rewrite.ScalarOperatorRewriter;
 import com.starrocks.sql.parser.NodePosition;
+import com.starrocks.tablestream.TableStreamMgr;
 import com.starrocks.type.DateType;
 import com.starrocks.type.FunctionType;
 import com.starrocks.type.IntegerType;
@@ -911,6 +912,8 @@ public final class SqlToScalarOperatorTranslator {
             String funcType = node.getFuncType();
             if (funcType.equalsIgnoreCase(FunctionSet.CONNECTION_ID)) {
                 return ConstantOperator.createBigint(node.getIntValue());
+            } else if (funcType.equalsIgnoreCase(TableStreamMgr.HAS_DATA)) {
+                return ConstantOperator.createBoolean(node.getIntValue() != 0);
             } else {
                 return ConstantOperator.createVarchar(node.getStrValue());
             }

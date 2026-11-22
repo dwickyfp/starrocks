@@ -67,6 +67,17 @@ SELECT order_id, status, METADATA$ACTION, METADATA$ISUPDATE FROM orders_changes;
 - In an explicit transaction (`BEGIN` ... `COMMIT`), every read of the stream returns the same changes, and the offset moves when the transaction commits.
 - Two transactions that read the stream at the same offset cannot both commit: the second one to commit fails, and its statement can run again to read the changes after the first one.
 
+## Running tasks on streams
+
+`SYSTEM$STREAM_HAS_DATA('[db.]stream')` returns `TRUE` when the stream has changes since its offset. It reads only the metadata of the stream, and fails on a stale stream. In the `WHEN` condition of a [task](./Snowflake_tasks.md#conditions-on-streams), it skips the scheduled runs while the stream has no data, and a task without `SCHEDULE` runs when the stream has data:
+
+```sql
+CREATE TASK audit_orders WHEN SYSTEM$STREAM_HAS_DATA('orders_changes') AS
+INSERT INTO orders_audit
+SELECT order_id, status, METADATA$ACTION, METADATA$ISUPDATE FROM orders_changes;
+ALTER TASK audit_orders RESUME;
+```
+
 ## Stale streams
 
 A stream is stale when the changes since its offset are no longer known: when its offset is older than the retention period of its table, when time travel is turned off for the table, when the data of the table was replaced since the offset (`TRUNCATE`, `INSERT OVERWRITE`, a replace of temporary partitions or a schema change), or when the table was dropped. A stale stream cannot be read; recreate it. Consuming a stream regularly keeps its offset within the retention period.

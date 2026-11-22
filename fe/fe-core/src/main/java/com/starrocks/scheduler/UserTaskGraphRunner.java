@@ -357,6 +357,11 @@ public class UserTaskGraphRunner {
                             + "%d failed, %d skipped", condition, succeeded, failed, skipped));
                     continue;
                 }
+                String blocked = UserTaskCondition.blockingReason(task);
+                if (blocked != null) {
+                    skip(graphRun, name, blocked);
+                    continue;
+                }
                 submit(graphRun, name);
             }
         }

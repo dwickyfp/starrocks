@@ -73,6 +73,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -111,6 +112,8 @@ public class TaskManager implements MemoryTrackable {
     // reusable across leader demotion / re-election cycles.
     // Package-private so same-package tests can assert / swap pool state without reflection.
     volatile ScheduledExecutorService periodScheduler = Executors.newScheduledThreadPool(1);
+    // task id -> when the trigger of its streams last ran the triggered task, on the leader
+    private final Map<Long, Long> lastTriggerTimes = new ConcurrentHashMap<>();
 
     // The dispatchTaskScheduler is responsible for periodically checking whether the running TaskRun is completed
     // and updating the status. It is also responsible for placing pending TaskRun in the running TaskRun queue.
@@ -157,6 +160,8 @@ public class TaskManager implements MemoryTrackable {
             clearUnfinishedTaskRun();
             registerPeriodicalTask();
             startDispatchScheduler();
+            lastTriggerTimes.clear();
+            periodScheduler.scheduleWithFixedDelay(this::triggerStreamTasks, 1, 1, TimeUnit.SECONDS);
         }
     }
 
@@ -1146,12 +1151,88 @@ public class TaskManager implements MemoryTrackable {
     }
 
     // As Snowflake's default NO_OVERLAP: a root task does not run on its schedule while its task graph still runs.
+    // Nor when the conditions on streams of its WHEN clause do not hold: the run is SKIPPED.
     private boolean skipWhileGraphRuns(Task task) {
         if (task.isUserSqlTask() && userTaskGraphRunner.isGraphRunning(task.getName())) {
             LOG.info("skip the scheduled run of task {}: its task graph is still running", task.getName());
             return true;
         }
+        if (task.isUserSqlTask()) {
+            String reason = UserTaskCondition.blockingReason(task);
+            if (reason != null) {
+                LOG.info("skip the scheduled run of task {}: {}", task.getName(), reason);
+                recordSkippedRun(task, "Skipped: " + reason);
+                return true;
+            }
+        }
         return false;
+    }
+
+    /** When the trigger of its streams last ran the task, or null. */
+    Long getLastTriggerTime(long taskId) {
+        return lastTriggerTimes.get(taskId);
+    }
+
+    /** Records a SKIPPED run of the task in the task run history. */
+    public void recordSkippedRun(Task task, String message) {
+        try {
+            TaskRun taskRun = TaskRunBuilder.newBuilder(task).build();
+            TaskRunStatus status = taskRun.initStatus(UUIDUtil.genUUID().toString(), System.currentTimeMillis());
+            status.setState(Constants.TaskRunState.SKIPPED);
+            status.setErrorMessage(message);
+            status.setFinishTime(System.currentTimeMillis());
+            GlobalStateMgr.getCurrentState().getEditLog().logTaskRunCreateStatus(status,
+                    wal -> taskRunManager.getTaskRunHistory().addHistory(status));
+        } catch (Exception e) {
+            LOG.warn("failed to record the skipped run of task {}", task.getName(), e);
+        }
+    }
+
+    /**
+     * Runs the triggered tasks whose streams have data: the resumed root and standalone tasks without SCHEDULE
+     * whose WHEN condition reads streams. A task runs at most once per its minimum trigger interval, and not while a
+     * run of it or of its task graph is pending or running. Runs every second on the leader.
+     */
+    void triggerStreamTasks() {
+        if (!GlobalStateMgr.getCurrentState().isLeader()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (Task task : nameToTaskMap.values()) {
+            try {
+                if (!task.isUserSqlTask() || task.getState() != Constants.TaskState.ACTIVE
+                        || task.getSchedule() != null || UserTaskGraph.isChildOrFinalizer(task)) {
+                    continue;
+                }
+                UserTaskCondition when = UserTaskSpec.getWhen(task);
+                if (when == null || when.getStreams() == null) {
+                    continue;
+                }
+                Long last = lastTriggerTimes.get(task.getId());
+                if (last != null && now - last < UserTaskSpec.getMinimumTriggerIntervalS(task) * 1000) {
+                    continue;
+                }
+                if (taskRunScheduler.getRunnableTaskRun(task.getId()) != null
+                        || userTaskGraphRunner.isGraphRunning(task.getName())) {
+                    continue;
+                }
+                String reason = UserTaskCondition.blockingReason(task);
+                if (reason == null) {
+                    lastTriggerTimes.put(task.getId(), now);
+                    task.setLastScheduleTime(TimeUtils.getEpochSeconds());
+                    LOG.info("trigger task {}: the streams of its WHEN condition have data", task.getName());
+                    executeTask(task.getName(), new ExecuteOption(Constants.TaskRunPriority.LOWEST.value(), true,
+                            task.getProperties()));
+                } else if (!reason.endsWith(" is false")) {
+                    // an error, such as a stale stream: check it again after the interval
+                    lastTriggerTimes.put(task.getId(), now);
+                    LOG.warn("triggered task {} does not run: {}", task.getName(), reason);
+                }
+            } catch (Throwable e) {
+                lastTriggerTimes.put(task.getId(), now);
+                LOG.warn("failed to trigger task {}", task.getName(), e);
+            }
+        }
     }
 
     /**

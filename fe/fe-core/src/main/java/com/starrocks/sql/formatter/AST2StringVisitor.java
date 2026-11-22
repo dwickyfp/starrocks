@@ -141,6 +141,7 @@ import com.starrocks.sql.ast.expression.VariableExpr;
 import com.starrocks.sql.ast.pipe.CreatePipeStmt;
 import com.starrocks.sql.parser.NodePosition;
 import com.starrocks.storagevolume.StorageVolume;
+import com.starrocks.tablestream.TableStreamMgr;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -1477,6 +1478,9 @@ public class AST2StringVisitor implements AstVisitorExtendInterface<String, Void
     }
 
     public String visitInformationFunction(InformationFunction node, Void context) {
+        if (node.getFuncType().equalsIgnoreCase(TableStreamMgr.HAS_DATA)) {
+            return TableStreamMgr.HAS_DATA + "('" + node.getStrValue().replace("'", "''") + "')";
+        }
         return visitExpression(node, context);
     }
 

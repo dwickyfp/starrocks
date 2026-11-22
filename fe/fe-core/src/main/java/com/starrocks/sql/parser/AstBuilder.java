@@ -40,6 +40,7 @@ import com.starrocks.mysql.MysqlPassword;
 import com.starrocks.mysql.privilege.AuthPlugin;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SqlModeHelper;
+import com.starrocks.scheduler.UserTaskCondition;
 import com.starrocks.scheduler.persist.TaskSchedule;
 import com.starrocks.server.StorageVolumeMgr;
 import com.starrocks.server.WarehouseManager;
@@ -573,6 +574,7 @@ import com.starrocks.sql.common.PListCell;
 import com.starrocks.sql.parser.rewriter.CompoundPredicateExprRewriter;
 import com.starrocks.sql.util.EitherOr;
 import com.starrocks.statistic.StatsConstants;
+import com.starrocks.tablestream.TableStreamMgr;
 import com.starrocks.transaction.GtidGenerator;
 import com.starrocks.type.AggStateDesc;
 import com.starrocks.type.AnyMapType;
@@ -2436,14 +2438,13 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
                 .collect(toList());
     }
 
-    // WHEN SYSTEM$PREDECESSORS_STATE('<state>') -> <state> in upper case
+    // WHEN <condition> -> the text the WHEN option of the task keeps (see UserTaskCondition)
     private String getTaskCondition(com.starrocks.sql.parser.StarRocksParser.TaskConditionContext context) {
-        String function = ((Identifier) visit(context.functionName)).getValue();
-        if (!function.equalsIgnoreCase("SYSTEM$PREDECESSORS_STATE")) {
-            throw new ParsingException("Unsupported task condition " + function
-                    + ", only SYSTEM$PREDECESSORS_STATE('<state>') is supported", createPos(context));
+        try {
+            return UserTaskCondition.fromExpr((Expr) visit(context.expression())).toOption();
+        } catch (SemanticException e) {
+            throw new ParsingException(e.getDetailMsg(), createPos(context));
         }
-        return ((StringLiteral) visit(context.state)).getValue().trim().toUpperCase();
     }
 
     @Override
@@ -8837,6 +8838,15 @@ public class AstBuilder extends com.starrocks.sql.parser.StarRocksBaseVisitor<Pa
         }
         if (!fullFunctionName.contains(".") && context.over() == null && CompatFunctions.NAMES.contains(functionName)) {
             return CompatFunctions.rewrite(functionName, visit(context.expression(), Expr.class), pos);
+        }
+        if (!fullFunctionName.contains(".") && context.over() == null
+                && functionName.equalsIgnoreCase(TableStreamMgr.HAS_DATA)) {
+            List<Expr> args = visit(context.expression(), Expr.class);
+            if (args.size() != 1 || !(args.get(0) instanceof StringLiteral)) {
+                throw new ParsingException(TableStreamMgr.HAS_DATA + " takes the name of a stream as a string literal",
+                        pos);
+            }
+            return new InformationFunction(TableStreamMgr.HAS_DATA, ((StringLiteral) args.get(0)).getValue(), 0, pos);
         }
         if (functionName.equals(FunctionSet.ARRAY_GENERATE)) {
             if (context.expression().size() == 3) {
